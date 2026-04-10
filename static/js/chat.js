@@ -339,7 +339,7 @@ const Chat = (() => {
                 </svg>
             </div>
             <h1 class="welcome-title">Local LLM</h1>
-            <p class="welcome-subtitle">Powered by Gemma 4 &bull; FAISS &bull; NeMo Retriever</p>
+            <p id="welcome-subtitle" class="welcome-subtitle">Powered by Ollama &bull; FAISS &bull; NeMo Retriever</p>
             <div class="welcome-hints">
                 <div class="hint-card" data-hint="Summarize the key findings from my documents">
                     <span class="hint-icon">📄</span><span>Summarize documents</span>
@@ -365,6 +365,8 @@ const Chat = (() => {
                 }
             });
         });
+        // Refresh status to show current model name
+        App.checkStatus();
     }
 
     function scrollToBottom() {

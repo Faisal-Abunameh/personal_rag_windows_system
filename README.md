@@ -1,6 +1,6 @@
 # 🤖 Local RAG System
 
-A fully local **Retrieval-Augmented Generation** system with a ChatGPT-like interface, powered by **Google Gemma 4**, **FAISS** vector search, **NVIDIA NeMo Retriever** embeddings, and **MarkItDown** document parsing.
+A fully local **Retrieval-Augmented Generation** system with a ChatGPT-like interface. Works with **any Ollama model** (Gemma 4, LLaMA 3, Mistral, Phi, Qwen, etc.), **FAISS** vector search, **NVIDIA NeMo Retriever** embeddings, and **MarkItDown** document parsing.
 
 > **100% local & private** — No data leaves your machine. No authentication required.
 
@@ -30,7 +30,7 @@ A fully local **Retrieval-Augmented Generation** system with a ChatGPT-like inte
 |---|---|
 | **ChatGPT-like UI** | Premium dark-mode interface with streaming responses, markdown rendering, and code highlighting |
 | **RAG Pipeline** | Semantic search over your documents using FAISS vector similarity |
-| **Gemma 4 LLM** | Google's state-of-the-art model running locally via Ollama |
+| **Any Ollama Model** | Supports any model from the Ollama library — Gemma 4, LLaMA 3, Mistral, Phi, Qwen, and more |
 | **NeMo Retriever** | NVIDIA's embedding model for high-quality vector representations (with sentence-transformers fallback) |
 | **MarkItDown** | Microsoft's document parser supporting PDF, DOCX, PPTX, XLSX, HTML, CSV, JSON, and more |
 | **Semantic Chunking** | Intelligent text splitting based on meaning, not arbitrary character counts |
@@ -47,26 +47,26 @@ A fully local **Retrieval-Augmented Generation** system with a ChatGPT-like inte
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                    Frontend (HTML/CSS/JS)                     │
-│  ┌─────────┐  ┌──────────┐  ┌────────┐  ┌──────────────┐   │
-│  │ Sidebar │  │ Chat Area│  │ Upload │  │ Markdown/SSE │   │
-│  └────┬────┘  └────┬─────┘  └───┬────┘  └──────┬───────┘   │
+│                    Frontend (HTML/CSS/JS)                    │
+│  ┌─────────┐  ┌──────────┐  ┌────────┐  ┌──────────────┐     │
+│  │ Sidebar │  │ Chat Area│  │ Upload │  │ Markdown/SSE │     │
+│  └────┬────┘  └────┬─────┘  └───┬────┘  └──────┬───────┘     │
 └───────┼────────────┼────────────┼───────────────┼────────────┘
         │            │            │               │
         ▼            ▼            ▼               ▼
 ┌──────────────────────────────────────────────────────────────┐
-│                   FastAPI Backend                             │
-│  ┌─────────────┐  ┌────────────┐  ┌───────────────────────┐ │
-│  │ Conversations│  │    Chat    │  │     Documents         │ │
-│  │    CRUD      │  │ (Streaming)│  │ (Upload/Index/Refs)   │ │
-│  └──────┬──────┘  └─────┬──────┘  └──────────┬────────────┘ │
-│         │               │                    │              │
-│         ▼               ▼                    ▼              │
+│                   FastAPI Backend                            │
+│  ┌─────────────┐  ┌────────────┐  ┌───────────────────────┐  │
+│  │Conversations│  │    Chat    │  │     Documents         │  │
+│  │   CRUD      │  │(Streaming) │  │ (Upload/Index/Refs)   │  │
+│  └──────┬──────┘  └─────┬──────┘  └──────────┬────────────┘  │
+│         │               │                    │               │
+│         ▼               ▼                    ▼               │
 │  ┌─────────────────────────────────────────────────────────┐ │
 │  │                  RAG Pipeline                           │ │
-│  │  MarkItDown → Semantic Chunker → Embeddings → FAISS    │ │
+│  │  MarkItDown → Semantic Chunker → Embeddings → FAISS     │ │
 │  │                                                         │ │
-│  │  Query → Embed → Search Top-10 → Context → LLM Stream  │ │
+│  │  Query → Embed → Search Top-10 → Context → LLM Stream   │ │
 │  └──────────────────────────┬──────────────────────────────┘ │
 └─────────────────────────────┼────────────────────────────────┘
                               │
@@ -80,71 +80,197 @@ A fully local **Retrieval-Augmented Generation** system with a ChatGPT-like inte
 
 ---
 
-## 📦 Prerequisites
+## 📦 Prerequisites — What You Need Before Starting
 
-| Requirement | Version | Purpose |
-|---|---|---|
-| **Python** | 3.10+ | Runtime |
-| **Ollama** | Latest | Local LLM hosting |
-| **Docker** (optional) | Latest | NeMo Retriever NIM embeddings |
-| **NVIDIA GPU** (optional) | — | Required for NeMo; app works with CPU otherwise |
+Before running the app, make sure you have the following installed on your system.
 
-### Install Ollama
+### Step 1: Python 3.10 or later (REQUIRED)
 
-1. Download from [ollama.com/download](https://ollama.com/download)
-2. Install and start Ollama
-3. Pull Gemma 4:
-   ```bash
-   ollama pull gemma4
-   ```
+Download and install Python from [python.org/downloads](https://www.python.org/downloads/).
 
-### (Optional) NeMo Retriever NIM
+> ⚠️ During installation, **check the box** that says "Add Python to PATH".
 
-If you have Docker + NVIDIA GPU:
+Verify your installation:
 ```bash
-# Pull and run the NeMo Retriever embedding NIM
-docker run --gpus all -p 8000:8000 \
-    nvcr.io/nim/nvidia/llama-3.2-nv-embedqa-1b-v2:latest
+python --version
+# Expected: Python 3.10.x or higher
 ```
-
-> Without Docker/GPU, the system automatically falls back to `sentence-transformers` (all-MiniLM-L6-v2) — still excellent quality.
 
 ---
 
-## 🚀 Quick Start
+### Step 2: Git (REQUIRED)
+
+Download and install Git from [git-scm.com/downloads](https://git-scm.com/downloads).
+
+Verify:
+```bash
+git --version
+```
+
+---
+
+### Step 3: Ollama — Local LLM Runtime (REQUIRED)
+
+Ollama runs any LLM locally on your machine. This project supports **any model** from the [Ollama library](https://ollama.com/library).
+
+1. **Download** Ollama from [ollama.com/download](https://ollama.com/download)
+2. **Install** by running the downloaded installer
+3. **Start Ollama** — it runs as a system service automatically after install
+4. **Verify** it's running:
+   ```bash
+   # In a terminal / PowerShell:
+   ollama --version
+   ```
+5. **Pull a model** — pick any model you want from the table below:
+   ```bash
+   # Recommended default:
+   ollama pull gemma4
+
+   # Or pick any other model:
+   ollama pull llama3.2
+   ollama pull mistral
+   ollama pull phi4
+   ollama pull qwen3
+   ```
+
+   **Popular models:**
+
+   | Model | Command | Size | Notes |
+   |---|---|---|---|
+   | Gemma 4 | `ollama pull gemma4` | ~5–17 GB | Google's latest, great quality |
+   | Gemma 4 (small) | `ollama pull gemma4:4b` | ~3 GB | Fast, works on 8 GB RAM |
+   | LLaMA 3.2 | `ollama pull llama3.2` | ~2 GB | Meta's compact model |
+   | Mistral | `ollama pull mistral` | ~4 GB | Excellent for general tasks |
+   | Phi 4 | `ollama pull phi4` | ~9 GB | Microsoft's reasoning model |
+   | Qwen 3 | `ollama pull qwen3` | ~5 GB | Alibaba's multilingual model |
+   | DeepSeek R1 | `ollama pull deepseek-r1` | ~4–8 GB | Strong reasoning |
+
+   > 💡 Browse all models at [ollama.com/library](https://ollama.com/library)
+
+6. **Verify** the model is available:
+   ```bash
+   ollama list
+   # You should see your model in the list
+   ```
+
+---
+
+### Step 4 (OPTIONAL): Docker + NVIDIA GPU — For NeMo Retriever Embeddings
+
+This is **completely optional**. If you skip this, the system uses `sentence-transformers` (all-MiniLM-L6-v2) for embeddings, which works great on CPU.
+
+If you have an NVIDIA GPU and want premium embeddings:
+1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+2. Install [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
+3. Pull and run the NeMo Retriever NIM:
+   ```bash
+   docker run --gpus all -p 8080:8080 \
+       nvcr.io/nim/nvidia/llama-3.2-nv-embedqa-1b-v2:latest
+   ```
+
+---
+
+## 🚀 Quick Start — Step-by-Step Setup
+
+Follow these steps **in order** to get the app running.
+
+### Step 1: Clone the Repository
 
 ```bash
-# 1. Clone the repository
 git clone <repo-url>
 cd personal_rag_windows_system
+```
 
-# 2. Create virtual environment
+### Step 2: Create a Python Virtual Environment
+
+This isolates the app's dependencies from your system Python.
+
+**Windows (PowerShell):**
+```powershell
 python -m venv venv
-venv\Scripts\activate       # Windows
-# source venv/bin/activate  # Mac/Linux
+.\venv\Scripts\Activate.ps1
+```
 
-# 3. Install dependencies
+> 💡 If you get an execution policy error, run:  
+> `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`
+
+**Windows (CMD):**
+```cmd
+python -m venv venv
+venv\Scripts\activate.bat
+```
+
+**macOS / Linux:**
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+You should see `(venv)` at the start of your terminal prompt.
+
+### Step 3: Install Python Dependencies
+
+```bash
 pip install -r requirements.txt
+```
 
-# 4. Make sure Ollama is running with Gemma 4
+This installs FastAPI, FAISS, sentence-transformers, MarkItDown, and all other dependencies. It may take a few minutes the first time.
+
+### Step 4: Ensure Ollama is Running with Your Model
+
+Open a **separate terminal** and verify:
+```bash
+ollama list
+# Should show your chosen model in the list
+```
+
+If not, pull it now:
+```bash
+# Default (Gemma 4):
 ollama pull gemma4
 
-# 5. Launch the app
+# Or any other model:
+ollama pull llama3.2
+```
+
+### Step 5: (Optional) Add Reference Documents
+
+Place any documents you want the system to know about into:
+```
+C:\Users\<YourUsername>\Desktop\references\
+```
+
+Supported formats: **PDF, DOCX, PPTX, XLSX, HTML, CSV, JSON, XML, TXT, MD, PNG, JPG, ZIP, EPUB**
+
+The app will automatically scan and index this folder on startup.
+
+### Step 6: Launch the App
+
+```bash
 python run.py
 ```
 
-The app will:
-- ✅ Check Python version
-- ✅ Create required directories
-- ✅ Check Ollama availability
-- ✅ Pull Gemma 4 if not present
-- ✅ Initialize databases and FAISS index
-- ✅ Scan and index your references directory
-- ✅ Open `http://localhost:8000` in your browser
+**What happens on launch:**
+1. ✅ Checks your Python version
+2. ✅ Creates required data directories
+3. ✅ Creates `Desktop/references/` if it doesn't exist
+4. ✅ Checks Ollama availability and pulls the configured model if needed
+5. ✅ Initializes SQLite database
+6. ✅ Loads the embedding model (first run downloads ~90 MB)
+7. ✅ Initializes the FAISS vector index
+8. ✅ Scans and indexes your references directory
+9. ✅ Opens `http://localhost:8000` in your browser automatically
 
-### Using the Desktop Shortcut
+### Step 7: Start Chatting!
 
-Double-click `Local LLM.lnk` in the project directory to launch the app.
+The app should open in your browser. If not, navigate to:
+```
+http://localhost:8000
+```
+
+### Alternative: Use the Desktop Shortcut
+
+Double-click **`Local LLM.lnk`** in the project directory to launch the app without a terminal.
 
 ---
 
@@ -155,7 +281,7 @@ All settings are in `app/config.py` and can be overridden via environment variab
 | Variable | Default | Description |
 |---|---|---|
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API endpoint |
-| `LLM_MODEL` | `gemma4` | Ollama model name |
+| `LLM_MODEL` | `gemma4` | Ollama model name (any model from `ollama list`) |
 | `LLM_TEMPERATURE` | `0.7` | Response creativity (0.0–1.0) |
 | `LLM_MAX_TOKENS` | `4096` | Max response length |
 | `REFERENCES_DIR` | `~/Desktop/references` | Path to reference documents |
@@ -172,11 +298,21 @@ All settings are in `app/config.py` and can be overridden via environment variab
 ### Example `.env` file
 
 ```env
-LLM_MODEL=gemma4:12b
+# Switch to a different model:
+LLM_MODEL=llama3.2
 LLM_TEMPERATURE=0.5
 TOP_K_CHUNKS=15
 REFERENCES_DIR=D:\my_documents\references
 ```
+
+### Switching Models
+
+To use a different model, just:
+1. Pull it: `ollama pull <model-name>`
+2. Set it in `.env`: `LLM_MODEL=<model-name>`
+3. Restart the app
+
+The UI automatically displays the active model name.
 
 ---
 
@@ -333,7 +469,7 @@ The system uses multiple optimization layers:
 ⚠️ Ollama is not running!
 ```
 
-**Fix**: Install Ollama from [ollama.com/download](https://ollama.com/download), start it, and run `ollama pull gemma4`.
+**Fix**: Install Ollama from [ollama.com/download](https://ollama.com/download), start it, and run `ollama pull <your-model>`.
 
 ### Model not available
 
@@ -341,7 +477,7 @@ The system uses multiple optimization layers:
 Model 'gemma4' not found
 ```
 
-**Fix**: Run `ollama pull gemma4` in your terminal. For a smaller model: `ollama pull gemma4:4b`.
+**Fix**: Run `ollama pull <model-name>` in your terminal. Set `LLM_MODEL` in `.env` to match. Check available models: `ollama list`.
 
 ### Import errors
 

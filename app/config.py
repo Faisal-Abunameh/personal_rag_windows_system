@@ -25,7 +25,7 @@ REFERENCES_DIR = Path(
 )
 
 # ──────────────────────────────────────────────
-# LLM (Ollama + Gemma 4)
+# LLM (Ollama — supports any model)
 # ──────────────────────────────────────────────
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 LLM_MODEL = os.getenv("LLM_MODEL", "gemma4")

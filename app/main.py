@@ -86,7 +86,7 @@ async def lifespan(app: FastAPI):
 # Create FastAPI app
 app = FastAPI(
     title="Local RAG System",
-    description="A local RAG system with Gemma 4, FAISS, and NeMo Retriever",
+    description="A local RAG system with any Ollama model, FAISS, and NeMo Retriever",
     version="1.0.0",
     lifespan=lifespan,
 )

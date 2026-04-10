@@ -1,5 +1,5 @@
 """
-Ollama / Gemma 4 LLM client.
+Ollama LLM client — supports any Ollama model.
 Handles streaming chat completions and model management.
 """
 

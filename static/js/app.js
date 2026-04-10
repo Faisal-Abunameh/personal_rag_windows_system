@@ -99,6 +99,17 @@ const App = (() => {
             ? `${s.model_name} · ${s.total_chunks} chunks`
             : 'LLM offline';
         el.innerHTML = `<span class="status-dot ${dotClass}"></span>${label}`;
+
+        // Dynamically update model name in UI
+        const modelDisplay = s.model_name || 'Ollama';
+        const subtitle = document.getElementById('welcome-subtitle');
+        if (subtitle) {
+            subtitle.innerHTML = `Powered by ${modelDisplay} &bull; FAISS &bull; NeMo Retriever`;
+        }
+        const hint = document.getElementById('input-hint-text');
+        if (hint) {
+            hint.textContent = `Local LLM uses ${modelDisplay} + FAISS RAG. Responses may not always be accurate.`;
+        }
     }
 
     // ─── Keyboard Shortcuts ───
