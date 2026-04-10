@@ -62,6 +62,9 @@ async def index_document(file_path: str | Path, source: str = "upload") -> dict:
         for c in chunks
     ]
 
+    # Clear any existing chunks for this file to prevent duplicates/stale data
+    vector_store.remove_by_source(doc["filename"])
+
     # Add to FAISS
     vector_store.add(embeddings, metadata_list)
     vector_store.save()
@@ -180,28 +183,28 @@ def retrieve_context(query: str, top_k: int = None) -> tuple[str, list[SourceRef
     return context, sources
 
 
+import time
+
 async def chat_with_rag(
     user_message: str,
     conversation_id: Optional[str] = None,
     attachment_path: Optional[str] = None,
+    web_search: bool = False,
+    parent_id: Optional[str] = None,
 ) -> AsyncGenerator[dict, None]:
     """
     Full RAG chat pipeline with streaming.
-
-    Yields dicts with keys:
-        - type: "token" | "sources" | "done" | "error" | "info"
-        - content: str (for tokens)
-        - sources: list (for sources)
-        - conversation_id: str (for done)
     """
+    start_time = time.time()
     llm = get_llm_client()
 
     # Create or load conversation
-    if not conversation_id:
+    if not conversation_id or conversation_id in ("undefined", "null", "None"):
         conversation_id = await conversation_store.create_conversation()
         is_new = True
     else:
         is_new = False
+
 
     # Handle attachment
     if attachment_path:
@@ -215,15 +218,47 @@ async def chat_with_rag(
         except Exception as e:
             yield {"type": "info", "content": f"⚠️ Failed to process attachment: {e}"}
 
-    # Save user message
-    await conversation_store.add_message(conversation_id, "user", user_message)
+    # Save user message (unless regenerating)
+    user_msg_id = parent_id
+    if not user_message and parent_id:
+        # Regeneration case: use parent message's content
+        parent_msg = await conversation_store.get_message(parent_id)
+        if parent_msg:
+            user_message = parent_msg.content
+        else:
+            yield {"type": "error", "content": "Could not find parent message for regeneration."}
+            return
+    else:
+        # Normal case: Save new user message
+        user_msg_id = await conversation_store.add_message(conversation_id, "user", user_message, parent_id=parent_id)
+
 
     # Auto-title on first message
     if is_new:
         await conversation_store.auto_title(conversation_id, user_message)
 
+    # Web search
+    web_context = ""
+    if web_search:
+        yield {"type": "info", "content": "🌍 Searching the web..."}
+        try:
+            from app.services.web_search import search_web
+            # Ideally this would be async, but duckduckgo-search is fast enough for now
+            web_results = search_web(user_message)
+            if web_results:
+                web_context = "--- LIVE WEB SEARCH RESULTS ---\n" + web_results + "\n\n"
+                yield {"type": "info", "content": "✅ Web search complete"}
+            else:
+                yield {"type": "info", "content": "⚠️ No web results found"}
+        except Exception as e:
+            logger.error(f"Web search error in pipeline: {e}")
+            yield {"type": "info", "content": f"⚠️ Web search failed: {e}"}
+
     # Retrieve context from FAISS
     context, sources = retrieve_context(user_message)
+    
+    # Combine web and local context
+    full_context = web_context + context
 
     # Send sources to frontend
     if sources:
@@ -232,26 +267,29 @@ async def chat_with_rag(
             "sources": [s.model_dump() for s in sources],
         }
 
-    # Get conversation history
-    history = await conversation_store.get_conversation_history(conversation_id)
+    # Get conversation history ONLY FOR THIS BRANCH
+    history = await conversation_store.get_conversation_history(conversation_id, leaf_message_id=user_msg_id)
 
     # Stream LLM response
     full_response = ""
     async for token in llm.stream_chat(
         user_message=user_message,
-        context=context,
+        context=full_context,
         conversation_history=history[:-1],  # Exclude the message we just added
     ):
         full_response += token
         yield {"type": "token", "content": token}
 
     # Save assistant response
+    generation_time = round(time.time() - start_time, 2)
     sources_data = [s.model_dump() for s in sources] if sources else []
-    await conversation_store.add_message(
-        conversation_id, "assistant", full_response, sources=sources_data
+    ast_msg_id = await conversation_store.add_message(
+        conversation_id, "assistant", full_response, sources=sources_data, parent_id=user_msg_id, generation_time=generation_time
     )
 
     yield {
         "type": "done",
         "conversation_id": conversation_id,
+        "message_id": ast_msg_id,
+        "generation_time": generation_time,
     }

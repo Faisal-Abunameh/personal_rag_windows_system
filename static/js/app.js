@@ -47,10 +47,11 @@ const App = (() => {
             return resp.json();
         },
 
-        streamChat(message, conversationId, attachment) {
+        streamChat(message, conversationId, attachment, webSearch = false) {
             const formData = new FormData();
             formData.append('message', message);
             if (attachment) formData.append('attachment', attachment);
+            if (webSearch) formData.append('web_search', 'true');
 
             const url = conversationId
                 ? `/api/chat/${conversationId}`
@@ -144,10 +145,142 @@ const App = (() => {
         Chat.endStreaming();
     }
 
+    // ─── Model Picker ───
+    async function loadModels() {
+        const select = document.getElementById('model-select');
+        if (!select) return;
+
+        try {
+            const data = await api.get('/api/models');
+            const models = data.models || [];
+            const current = data.current_model || '';
+
+            if (models.length === 0) {
+                select.innerHTML = '<option value="">No models found</option>';
+                return;
+            }
+
+            select.innerHTML = models.map(m => {
+                const name = m.name;
+                const size = formatSize(m.size);
+                const param = m.parameter_size ? ` · ${m.parameter_size}` : '';
+                const isSelected = name === current ||
+                    name.split(':')[0] === current.split(':')[0];
+                return `<option value="${name}" ${isSelected ? 'selected' : ''}>${name}${param} (${size})</option>`;
+            }).join('');
+
+        } catch (e) {
+            console.error('Failed to load models:', e);
+            select.innerHTML = '<option value="">Failed to load</option>';
+        }
+    }
+
+    function formatSize(bytes) {
+        if (!bytes) return '?';
+        const gb = bytes / (1024 ** 3);
+        if (gb >= 1) return `${gb.toFixed(1)} GB`;
+        const mb = bytes / (1024 ** 2);
+        return `${mb.toFixed(0)} MB`;
+    }
+
+    function initModelSelector() {
+        const select = document.getElementById('model-select');
+        if (!select) return;
+
+        select.addEventListener('change', async () => {
+            const model = select.value;
+            if (!model) return;
+
+            select.classList.add('switching');
+            showToast(`Switching to ${model}...`, 'info', 2000);
+
+            try {
+                const result = await api.post('/api/models/switch', { model });
+                if (result.model_loaded) {
+                    showToast(`Now using ${result.model_name}`, 'success');
+                } else {
+                    showToast(`Model set to ${result.model_name} (may need pulling)`, 'warning');
+                }
+                await checkStatus();
+            } catch (e) {
+                showToast('Failed to switch model: ' + e.message, 'error');
+            } finally {
+                select.classList.remove('switching');
+            }
+        });
+    }
+
+    // ─── Embedding Model Picker ───
+    async function loadEmbeddingModels() {
+        const select = document.getElementById('embed-model-select');
+        if (!select) return;
+
+        try {
+            const data = await api.get('/api/embeddings/models');
+            const models = data.models || [];
+            const current = data.current_model || '';
+
+            if (models.length === 0) {
+                select.innerHTML = '<option value="">No models found</option>';
+                return;
+            }
+
+            select.innerHTML = models.map(m => {
+                const name = m.name;
+                const size = formatSize(m.size);
+                const badge = m.mode === 'sentence-transformers' ? ' [ST]' : '';
+                const isSelected = name === current ||
+                    name.split(':')[0] === current.split(':')[0];
+                return `<option value="${name}" data-mode="${m.mode}" ${isSelected ? 'selected' : ''}>${name}${badge} (${size})</option>`;
+            }).join('');
+
+        } catch (e) {
+            console.error('Failed to load embedding models:', e);
+            select.innerHTML = '<option value="">Failed to load</option>';
+        }
+    }
+
+    function initEmbeddingSelector() {
+        const select = document.getElementById('embed-model-select');
+        if (!select) return;
+
+        select.addEventListener('change', async () => {
+            const model = select.value;
+            if (!model) return;
+
+            const selectedOption = select.options[select.selectedIndex];
+            const mode = selectedOption?.dataset?.mode || 'ollama';
+
+            select.classList.add('switching');
+            showToast(`Switching embeddings to ${model}...`, 'info', 3000);
+
+            try {
+                const result = await api.post('/api/embeddings/switch', { model, mode });
+                if (result.success) {
+                    const msg = result.needs_reindex
+                        ? `Switched to ${result.model_name} (dim: ${result.dim}). Index rebuilt — re-scan references to re-index.`
+                        : `Embeddings now using ${result.model_name}`;
+                    showToast(msg, result.needs_reindex ? 'warning' : 'success', 5000);
+                } else {
+                    showToast('Switch failed: ' + (result.error || 'Unknown error'), 'error');
+                }
+                await checkStatus();
+            } catch (e) {
+                showToast('Failed to switch embedding model: ' + e.message, 'error');
+            } finally {
+                select.classList.remove('switching');
+            }
+        });
+    }
+
     // ─── Init ───
     async function init() {
         initShortcuts();
+        initModelSelector();
+        initEmbeddingSelector();
         await checkStatus();
+        await loadModels();
+        await loadEmbeddingModels();
         await Sidebar.loadConversations();
 
         // Welcome hint clicks
@@ -187,5 +320,8 @@ const App = (() => {
         newChat,
         stopStreaming,
         checkStatus,
+        loadModels,
+        loadEmbeddingModels,
     };
 })();
+

@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from app.config import STATIC_DIR, REFERENCES_DIR, DATA_DIR
+from app.config import STATIC_DIR, REFERENCES_DIR, DATA_DIR, DEVICE
 from app.database import init_db
 from app.services.embeddings import get_embedding_service
 from app.services.vector_store import get_vector_store
@@ -45,7 +45,7 @@ async def lifespan(app: FastAPI):
     # Initialize embedding service
     embedding_svc = get_embedding_service()
     await embedding_svc.initialize()
-    logger.info(f"✅ Embeddings ready ({embedding_svc.mode}: {embedding_svc.model_name})")
+    logger.info(f"✅ Embeddings ready ({embedding_svc.mode}: {embedding_svc.model_name}) on {DEVICE}")
 
     # Initialize FAISS vector store
     vector_store = get_vector_store()
@@ -145,4 +145,108 @@ async def system_status():
         "total_documents": doc_count,
         "total_chunks": vs.total_vectors,
         "references_dir": str(REFERENCES_DIR),
+        "device": DEVICE,
     }
+
+
+@app.get("/api/models")
+async def list_models():
+    """List all models available in Ollama."""
+    from app.services.llm import get_llm_client
+
+    llm = get_llm_client()
+    models = await llm.list_available_models()
+
+    return {
+        "models": models,
+        "current_model": llm.model_name,
+    }
+
+
+@app.post("/api/models/switch")
+async def switch_model(body: dict):
+    """Switch the active LLM model."""
+    from app.services.llm import get_llm_client
+
+    model_name = body.get("model")
+    if not model_name:
+        return {"error": "Model name is required"}, 400
+
+    llm = get_llm_client()
+    llm.set_model(model_name)
+
+    # Verify the model is available
+    model_ok = await llm.check_health()
+
+    return {
+        "success": True,
+        "model_name": llm.model_name,
+        "model_loaded": model_ok,
+    }
+
+
+@app.get("/api/embeddings/models")
+async def list_embedding_models():
+    """List all available embedding model options (Ollama models + sentence-transformers)."""
+    from app.services.llm import get_llm_client
+    from app.services.embeddings import get_embedding_service
+
+    llm = get_llm_client()
+    es = get_embedding_service()
+
+    # Get all Ollama models (any can be used for embeddings)
+    ollama_models = await llm.list_available_models()
+
+    options = []
+    for m in ollama_models:
+        options.append({
+            "name": m["name"],
+            "mode": "ollama",
+            "size": m.get("size", 0),
+            "parameter_size": m.get("parameter_size", ""),
+            "family": m.get("family", ""),
+        })
+
+    # Add sentence-transformers fallback option
+    options.append({
+        "name": "all-MiniLM-L6-v2",
+        "mode": "sentence-transformers",
+        "size": 90_000_000,  # ~90 MB
+        "parameter_size": "22M",
+        "family": "sentence-transformers",
+    })
+
+    return {
+        "models": options,
+        "current_model": es.model_name,
+        "current_mode": es.mode,
+        "current_dim": es.dim,
+    }
+
+
+@app.post("/api/embeddings/switch")
+async def switch_embedding_model(body: dict):
+    """Switch the active embedding model. May trigger re-indexing if dimensions change."""
+    from app.services.embeddings import get_embedding_service
+    from app.services.vector_store import get_vector_store
+
+    model_name = body.get("model")
+    mode = body.get("mode", "ollama")
+    if not model_name:
+        return {"error": "Model name is required"}, 400
+
+    es = get_embedding_service()
+    result = await es.switch_model(model_name, mode=mode)
+
+    if not result.get("success"):
+        return {"error": result.get("error", "Switch failed")}, 500
+
+    # If dimensions changed, rebuild the FAISS index
+    if result.get("dim_changed"):
+        vs = get_vector_store()
+        vs.initialize(dim=result["dim"])
+        vs.save()
+        logger.info(f"FAISS index rebuilt with new dim={result['dim']}")
+
+    return result
+

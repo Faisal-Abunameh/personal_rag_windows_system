@@ -20,10 +20,16 @@ async def list_conversations():
 @router.get("/{conversation_id}")
 async def get_conversation(conversation_id: str):
     """Get a conversation with all messages."""
-    conv = await conversation_store.get_conversation(conversation_id)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    return conv.model_dump()
+    try:
+        conv = await conversation_store.get_conversation(conversation_id)
+        if not conv:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return conv.model_dump()
+    except Exception as e:
+        import traceback
+        print(f"Error in get_conversation({conversation_id}): {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.put("/{conversation_id}")

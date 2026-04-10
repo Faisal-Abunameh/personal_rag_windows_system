@@ -74,7 +74,7 @@ async def get_conversation(conv_id: str) -> Optional[ConversationDetail]:
             return None
 
         cursor = await db.execute(
-            "SELECT id, role, content, sources, created_at FROM messages "
+            "SELECT id, role, content, sources, created_at, parent_id, generation_time FROM messages "
             "WHERE conversation_id = ? ORDER BY created_at ASC",
             (conv_id,),
         )
@@ -95,6 +95,8 @@ async def get_conversation(conv_id: str) -> Optional[ConversationDetail]:
                 content=mr["content"],
                 sources=sources,
                 created_at=mr["created_at"],
+                parent_id=mr["parent_id"],
+                generation_time=mr["generation_time"],
             ))
 
         return ConversationDetail(
@@ -113,17 +115,22 @@ async def add_message(
     role: str,
     content: str,
     sources: list[dict] = None,
+    parent_id: Optional[str] = None,
+    generation_time: Optional[float] = None,
 ) -> str:
     """Add a message to a conversation. Returns message ID."""
+    if not conv_id or conv_id in ("undefined", "null", "None"):
+        raise ValueError(f"Invalid conversation_id '{conv_id}' passed to add_message")
+        
     msg_id = str(uuid.uuid4())
     sources_json = json.dumps(sources or [], ensure_ascii=False)
 
     db = await get_db()
     try:
         await db.execute(
-            "INSERT INTO messages (id, conversation_id, role, content, sources) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (msg_id, conv_id, role, content, sources_json),
+            "INSERT INTO messages (id, conversation_id, role, content, sources, parent_id, generation_time) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (msg_id, conv_id, role, content, sources_json, parent_id, generation_time),
         )
         await db.execute(
             "UPDATE conversations SET updated_at = datetime('now') WHERE id = ?",
@@ -135,16 +142,67 @@ async def add_message(
     return msg_id
 
 
-async def get_conversation_history(conv_id: str) -> list[dict]:
-    """Get conversation history formatted for the LLM."""
+async def get_message(msg_id: str) -> Optional[Message]:
+    """Get a single message by ID."""
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT role, content FROM messages "
-            "WHERE conversation_id = ? AND role IN ('user', 'assistant') "
-            "ORDER BY created_at ASC",
-            (conv_id,),
+            "SELECT id, role, content, sources, created_at, parent_id, generation_time FROM messages WHERE id = ?",
+            (msg_id,),
         )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+
+        sources = []
+        try:
+            raw = json.loads(row["sources"] or "[]")
+            sources = [SourceReference(**s) for s in raw]
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+        return Message(
+            id=row["id"],
+            role=row["role"],
+            content=row["content"],
+            sources=sources,
+            created_at=row["created_at"],
+            parent_id=row["parent_id"],
+            generation_time=row["generation_time"],
+        )
+    finally:
+        await db.close()
+
+
+async def get_conversation_history(conv_id: str, leaf_message_id: Optional[str] = None) -> list[dict]:
+    """
+    Get conversation history formatted for the LLM.
+    If leaf_message_id is provided, it follows the chain of parents to build the specific branch.
+    """
+    db = await get_db()
+    try:
+        if leaf_message_id:
+            # Use Recursive CTE to find all ancestors of the leaf message
+            cursor = await db.execute("""
+                WITH RECURSIVE message_chain(id, role, content, parent_id, created_at) AS (
+                    SELECT id, role, content, parent_id, created_at FROM messages WHERE id = ?
+                    UNION ALL
+                    SELECT m.id, m.role, m.content, m.parent_id, m.created_at
+                    FROM messages m
+                    JOIN message_chain mc ON m.id = mc.parent_id
+                )
+                SELECT role, content FROM message_chain
+                WHERE role IN ('user', 'assistant')
+                ORDER BY created_at ASC
+            """, (leaf_message_id,))
+        else:
+            # Fallback to linear history if no leaf is specified (for legacy or simple chats)
+            cursor = await db.execute(
+                "SELECT role, content FROM messages "
+                "WHERE conversation_id = ? AND role IN ('user', 'assistant') "
+                "ORDER BY created_at ASC",
+                (conv_id,),
+            )
         rows = await cursor.fetchall()
         return [{"role": row["role"], "content": row["content"]} for row in rows]
     finally:

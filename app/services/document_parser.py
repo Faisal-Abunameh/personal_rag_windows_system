@@ -10,6 +10,11 @@ from markitdown import MarkItDown
 
 from app.config import SUPPORTED_EXTENSIONS
 
+try:
+    import fitz  # PyMuPDF
+except ImportError:
+    fitz = None
+
 logger = logging.getLogger(__name__)
 
 # Singleton MarkItDown instance
@@ -22,6 +27,22 @@ def get_markitdown() -> MarkItDown:
     if _md_instance is None:
         _md_instance = MarkItDown()
     return _md_instance
+
+
+def _parse_pdf_robustly(path: Path) -> str:
+    """Directly extract text from PDF using PyMuPDF."""
+    if fitz is None:
+        raise ImportError("PyMuPDF (fitz) is not installed.")
+
+    text = []
+    try:
+        with fitz.open(str(path)) as doc:
+            for page in doc:
+                text.append(page.get_text())
+        return "\n\n".join(text)
+    except Exception as e:
+        logger.error(f"PyMuPDF failed to parse {path.name}: {e}")
+        raise
 
 
 def parse_document(file_path: str | Path) -> dict:
@@ -45,17 +66,37 @@ def parse_document(file_path: str | Path) -> dict:
 
     logger.info(f"Parsing document: {path.name}")
 
-    md = get_markitdown()
-    try:
-        result = md.convert(str(path))
-        text = result.text_content or ""
-    except Exception as e:
-        logger.error(f"Failed to parse {path.name}: {e}")
-        # Fallback: try reading as plain text
+    text = ""
+    error = None
+
+    # Priority 1: Specialized PDF parsing
+    if ext == ".pdf" and fitz:
         try:
-            text = path.read_text(encoding="utf-8", errors="ignore")
-        except Exception:
-            raise RuntimeError(f"Cannot parse {path.name}: {e}")
+            text = _parse_pdf_robustly(path)
+        except Exception as e:
+            error = e
+
+    # Priority 2: General MarkItDown parsing (if not already handled or if specialized failed)
+    if not text:
+        md = get_markitdown()
+        try:
+            result = md.convert(str(path))
+            text = result.text_content or ""
+        except Exception as e:
+            error = e
+            logger.error(f"MarkItDown failed to parse {path.name}: {e}")
+
+    # Fallback only for text-based formats (Harden against binary junk)
+    if not text:
+        text_extensions = {".txt", ".md", ".csv", ".json", ".xml", ".html", ".htm"}
+        if ext in text_extensions:
+            try:
+                text = path.read_text(encoding="utf-8", errors="ignore")
+            except Exception as e:
+                error = e
+
+    if not text and error:
+        raise RuntimeError(f"Cannot parse {path.name}: {error}")
 
     return {
         "text": text.strip(),

@@ -4,6 +4,7 @@ All tunables are defined here and can be overridden via environment variables.
 """
 
 import os
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -37,19 +38,45 @@ LLM_CONTEXT_WINDOW = int(os.getenv("LLM_CONTEXT_WINDOW", "8192"))
 # ──────────────────────────────────────────────
 # Embeddings
 # ──────────────────────────────────────────────
-# NeMo Retriever NIM endpoint (Docker-based)
-NEMO_RETRIEVER_URL = os.getenv("NEMO_RETRIEVER_URL", "http://localhost:8000/v1")
-NEMO_RETRIEVER_MODEL = os.getenv(
-    "NEMO_RETRIEVER_MODEL", "llama-3.2-nv-embedqa-1b-v2"
-)
-
-# Fallback: sentence-transformers model (CPU-friendly)
+# Primary: any Ollama model via /api/embed (auto-detected or user-selected)
+# Fallback: sentence-transformers (local, runs on CPU or GPU)
 FALLBACK_EMBEDDING_MODEL = os.getenv(
     "FALLBACK_EMBEDDING_MODEL", "all-MiniLM-L6-v2"
 )
 
 # Embedding dimension (384 for MiniLM, 768 for NeMo — auto-detected)
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "0"))  # 0 = auto-detect
+
+# ──────────────────────────────────────────────
+# Device (GPU / CPU)
+# ──────────────────────────────────────────────
+# Options: "auto" (detect GPU, fallback CPU), "cuda", "cpu"
+_DEVICE_SETTING = os.getenv("DEVICE", "auto").lower()
+
+def resolve_device() -> str:
+    """Resolve the compute device: auto-detect CUDA GPU, fallback to CPU."""
+    _logger = logging.getLogger(__name__)
+    if _DEVICE_SETTING == "cpu":
+        _logger.info("Device forced to CPU via config")
+        return "cpu"
+    if _DEVICE_SETTING == "cuda":
+        _logger.info("Device forced to CUDA via config")
+        return "cuda"
+    # Auto-detect by actually trying to use CUDA
+    try:
+        import torch
+        # torch.cuda.is_available() can return True even for CPU-only builds,
+        # so we verify by actually allocating a tensor on CUDA
+        _ = torch.zeros(1, device="cuda")
+        gpu_name = torch.cuda.get_device_name(0)
+        vram = torch.cuda.get_device_properties(0).total_mem / (1024 ** 3)
+        _logger.info(f"GPU detected: {gpu_name} ({vram:.1f} GB VRAM) — using CUDA")
+        return "cuda"
+    except Exception:
+        _logger.info("CUDA not available — using CPU")
+        return "cpu"
+
+DEVICE = resolve_device()
 
 # ──────────────────────────────────────────────
 # RAG Pipeline
@@ -90,8 +117,9 @@ SUPPORTED_EXTENSIONS = {
 }
 
 # System prompt for the LLM
-SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT", """You are a helpful, knowledgeable AI assistant with access to a local knowledge base.
-When answering questions, use the provided context from retrieved documents to give accurate, well-sourced answers.
-If the context contains relevant information, cite the source document.
+SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT", """You are a helpful, knowledgeable AI assistant with access to both a local knowledge base and live web search results.
+When answering questions, use the provided context to give accurate, well-sourced answers.
+If the context comes from a local document, cite the source filename.
+If the context comes from a LIVE WEB SEARCH RESULT, cite the URL or source name provided.
 If you don't know the answer or the context doesn't contain relevant information, say so honestly.
 Be concise but thorough. Use markdown formatting for readability.""")

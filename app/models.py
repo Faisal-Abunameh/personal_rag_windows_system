@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 class ChatRequest(BaseModel):
     message: str
     conversation_id: Optional[str] = None
+    web_search: bool = False
 
 
 class SourceReference(BaseModel):
@@ -33,6 +34,8 @@ class StreamChunk(BaseModel):
     content: str = ""
     sources: list[SourceReference] = []
     conversation_id: str = ""
+    message_id: str = ""
+    generation_time: Optional[float] = None
 
 
 # ──────────────────────────────────────────────
@@ -52,6 +55,8 @@ class Message(BaseModel):
     content: str
     sources: list[SourceReference] = []
     created_at: str
+    parent_id: Optional[str] = None
+    generation_time: Optional[float] = None
 
 
 class ConversationDetail(BaseModel):

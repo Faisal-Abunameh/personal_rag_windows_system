@@ -301,7 +301,7 @@ All settings are in `app/config.py` and can be overridden via environment variab
 # Switch to a different model:
 LLM_MODEL=llama3.2
 LLM_TEMPERATURE=0.5
-TOP_K_CHUNKS=15
+TOP_K_CHUNKS=5
 REFERENCES_DIR=D:\my_documents\references
 ```
 
