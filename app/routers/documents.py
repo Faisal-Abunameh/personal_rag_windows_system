@@ -83,3 +83,23 @@ async def force_reindex():
     from app.services.rag_pipeline import index_references_directory
     results = await index_references_directory()
     return {"indexed": len(results), "details": results}
+
+
+@router.get("/{doc_id}/chunks")
+async def get_document_chunks(doc_id: str):
+    """Retrieve all chunks for a specific document."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT filename FROM documents WHERE id = ?", (doc_id,)
+        )
+        row = await cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        filename = row["filename"]
+        vs = get_vector_store()
+        chunks = vs.get_chunks_by_source(filename)
+        return {"filename": filename, "chunks": chunks}
+    finally:
+        await db.close()

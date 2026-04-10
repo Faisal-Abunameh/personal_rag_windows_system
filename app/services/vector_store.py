@@ -191,6 +191,15 @@ class VectorStore:
                 sources.add(src)
         return sorted(sources)
 
+    def get_chunks_by_source(self, source_file: str) -> list[dict]:
+        """Get all chunks for a specific source file, sorted by chunk_index."""
+        chunks = [
+            m for m in self._metadata
+            if m.get("source_file") == source_file
+        ]
+        # Sort by chunk_index if available
+        return sorted(chunks, key=lambda x: x.get("chunk_index", 0))
+
 
 # Singleton instance
 _vector_store: Optional[VectorStore] = None

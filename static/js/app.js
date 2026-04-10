@@ -273,6 +273,27 @@ const App = (() => {
         });
     }
 
+    function switchView(viewName) {
+        console.log('Switching view to:', viewName);
+        const chatView = document.getElementById('chat-view');
+        const kbView = document.getElementById('kb-view');
+        
+        if (viewName === 'chat') {
+            chatView.classList.add('active');
+            chatView.classList.remove('hidden');
+            kbView.classList.add('hidden');
+            kbView.classList.remove('active');
+            document.getElementById('btn-view-kb')?.classList.remove('active-nav');
+        } else if (viewName === 'kb') {
+            chatView.classList.add('hidden');
+            chatView.classList.remove('active');
+            kbView.classList.add('active');
+            kbView.classList.remove('hidden');
+            document.getElementById('btn-view-kb')?.classList.add('active-nav');
+            KnowledgeBase.refresh();
+        }
+    }
+
     // ─── Init ───
     async function init() {
         initShortcuts();
@@ -304,8 +325,31 @@ const App = (() => {
                 const result = await api.post('/api/references/scan');
                 showToast(`Indexed ${result.indexed} documents`, 'success');
                 await checkStatus();
+                // Refresh KB if we are in that view
+                if (document.getElementById('kb-view').classList.contains('active')) {
+                    KnowledgeBase.refresh();
+                }
             } catch (e) {
                 showToast('Scan failed: ' + e.message, 'error');
+            }
+        });
+
+        // View Knowledge Base button
+        document.getElementById('btn-view-kb')?.addEventListener('click', () => {
+            const isKB = document.getElementById('kb-view').classList.contains('active');
+            switchView(isKB ? 'chat' : 'kb');
+        });
+
+        // Handle "New Chat" button to ensure we switch back to chat view
+        document.getElementById('btn-new-chat')?.addEventListener('click', () => {
+            switchView('chat');
+        });
+
+        // Use event delegation to handle clicks on conversation items in the sidebar
+        document.getElementById('conversation-list')?.addEventListener('click', (e) => {
+            const item = e.target.closest('.conv-item');
+            if (item && !e.target.closest('.conv-action-btn')) {
+                switchView('chat');
             }
         });
     }
@@ -322,6 +366,7 @@ const App = (() => {
         checkStatus,
         loadModels,
         loadEmbeddingModels,
+        switchView,
     };
 })();
 

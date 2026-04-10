@@ -21,9 +21,9 @@ def check_python():
     """Ensure Python 3.10+."""
     v = sys.version_info
     if v.major < 3 or (v.major == 3 and v.minor < 10):
-        print(f"❌ Python 3.10+ required. You have {v.major}.{v.minor}.{v.micro}")
+        print(f"ERROR: Python 3.10+ required. You have {v.major}.{v.minor}.{v.micro}")
         sys.exit(1)
-    print(f"✅ Python {v.major}.{v.minor}.{v.micro}")
+    print(f"OK Python {v.major}.{v.minor}.{v.micro}")
 
 
 def check_ollama():
@@ -34,18 +34,18 @@ def check_ollama():
         if resp.status_code == 200:
             models = resp.json().get("models", [])
             model_names = [m.get("name", "").split(":")[0] for m in models]
-            print(f"✅ Ollama running — models: {', '.join(model_names) or 'none'}")
+            print(f"OK Ollama running - models: {', '.join(model_names) or 'none'}")
 
             if OLLAMA_MODEL.split(":")[0] not in model_names:
-                print(f"\n📥 Model '{OLLAMA_MODEL}' not found. Pulling...")
+                print(f"\nModel '{OLLAMA_MODEL}' not found. Pulling...")
                 print("   This may take several minutes for the first download.\n")
                 subprocess.run(["ollama", "pull", OLLAMA_MODEL], check=True)
-                print(f"✅ Model '{OLLAMA_MODEL}' ready")
+                print(f"OK Model '{OLLAMA_MODEL}' ready")
             return True
         return False
     except Exception:
         print("\n" + "=" * 60)
-        print("  ⚠️  Ollama is not running!")
+        print("  Ollama is not running!")
         print("=" * 60)
         print("\n  To install Ollama:")
         print("    1. Download from https://ollama.com/download")
@@ -73,8 +73,8 @@ def create_directories():
     for d in dirs:
         d.mkdir(parents=True, exist_ok=True)
 
-    print(f"✅ Directories ready")
-    print(f"   📁 References: {refs_dir}")
+    print(f"OK Directories ready")
+    print(f"   References: {refs_dir}")
 
 
 def open_browser():
@@ -82,19 +82,19 @@ def open_browser():
     time.sleep(2)
     url = f"http://localhost:{PORT}"
     webbrowser.open(url)
-    print(f"\n🌐 Opened {url} in browser")
+    print(f"\nOpened {url} in browser")
 
 
 def main():
     print("\n" + "=" * 60)
-    print("  🚀 Local RAG System — Launcher")
+    print("   Local RAG System - Launcher")
     print("=" * 60 + "\n")
 
     check_python()
     create_directories()
     check_ollama()
 
-    print(f"\n🔧 Starting server on http://localhost:{PORT}...")
+    print(f"\nStarting server on http://localhost:{PORT}...")
     print("   Press Ctrl+C to stop.\n")
 
     # Open browser in background
@@ -113,9 +113,9 @@ def main():
             access_log=False,
         )
     except KeyboardInterrupt:
-        print("\n\n👋 Server stopped. Goodbye!")
+        print("\n\nServer stopped. Goodbye!")
     except ImportError:
-        print("\n❌ Dependencies not installed. Run:")
+        print("\nERROR: Dependencies not installed. Run:")
         print(f"   pip install -r {BASE_DIR / 'requirements.txt'}")
         sys.exit(1)
 

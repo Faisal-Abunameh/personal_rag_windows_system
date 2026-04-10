@@ -1,1 +1,11 @@
 .env
+venv/
+__pycache__/
+*.pyc
+data/rag.db
+data/faiss_index/
+data/uploads/
+.pytest_cache/
+.coverage
+htmlcov/
+.DS_Store

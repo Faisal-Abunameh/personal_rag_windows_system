@@ -110,10 +110,18 @@ PORT = int(os.getenv("PORT", "8000"))
 # Supported file extensions for MarkItDown
 # ──────────────────────────────────────────────
 SUPPORTED_EXTENSIONS = {
-    ".pdf", ".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls",
-    ".html", ".htm", ".csv", ".json", ".xml", ".txt", ".md",
+    # Documents
+    ".pdf", ".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls", ".rtf", ".epub",
+    # Data & Config
+    ".csv", ".json", ".xml", ".yaml", ".yml", ".ini", ".env",
+    # Text & Markdown
+    ".txt", ".md", ".log",
+    # Code Files
+    ".py", ".js", ".ts", ".html", ".htm", ".css", ".sql", ".c", ".cpp", ".h", ".cs", ".go", ".rs", ".sh",
+    # Images (for metadata/EXIF)
     ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff",
-    ".zip", ".epub",
+    # Archives
+    ".zip",
 }
 
 # System prompt for the LLM

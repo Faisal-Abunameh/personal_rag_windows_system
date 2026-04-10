@@ -13,7 +13,6 @@ const Chat = (() => {
     let currentStreamEl = null;
     let streamedText = '';
     let currentConversation = null;
-    let activeLeafId = null;
     let messageMap = {}; // msgId -> msgObject
     let childrenMap = {}; // parentId -> [childIds]
 
@@ -197,93 +196,57 @@ const Chat = (() => {
             childrenMap[pid].push(m.id);
         });
 
-
-        if (targetLeafId && messageMap[targetLeafId]) {
-            activeLeafId = targetLeafId;
-        } else if (conv.messages.length > 0) {
-            const leafNodes = conv.messages.filter(m => !childrenMap[m.id]);
-            activeLeafId = leafNodes.length > 0 ? leafNodes[leafNodes.length - 1].id : null;
-        } else {
-            activeLeafId = null;
-        }
-
-        renderTree();
+        renderAll();
     }
 
-    function renderTree() {
+    function renderAll() {
         const el = messagesEl();
         if (!el) return;
         el.innerHTML = '';
 
-        if (!activeLeafId) {
+        if (!currentConversation || currentConversation.messages.length === 0) {
             showWelcome();
             return;
         }
 
         if (welcomeEl()) welcomeEl().style.display = 'none';
 
-        const branchIds = [];
-        let curr = activeLeafId;
-        while (curr) {
-            branchIds.unshift(curr);
-            curr = messageMap[curr]?.parent_id;
+        // Recursive DFS traversal to linearize the tree for "Option A"
+        function visit(pid) {
+            const ids = childrenMap[pid] || [];
+            // Sort siblings by creation time
+            ids.sort((a, b) => {
+                const msgA = messageMap[a];
+                const msgB = messageMap[b];
+                return new Date(msgA.created_at) - new Date(msgB.created_at);
+            });
+
+            ids.forEach(id => {
+                const m = messageMap[id];
+                const msgEl = createMessageElement(m.role, m.content, m);
+                
+                if (m.role === 'assistant' && m.generation_time) {
+                    const header = msgEl.querySelector('.message-header');
+                    const timeSpan = document.createElement('span');
+                    timeSpan.className = 'processing-time';
+                    timeSpan.textContent = `(${m.generation_time}s)`;
+                    header.appendChild(timeSpan);
+                }
+
+                addMessageActions(msgEl, m.content, m.role, m.id);
+                el.appendChild(msgEl);
+
+                if (m.sources && m.sources.length > 0) {
+                    addSourcesToEl(msgEl, m.sources);
+                }
+
+                // Visit children (this handles the "under each other" requirement for regenerations)
+                visit(id);
+            });
         }
 
-        branchIds.forEach(id => {
-            const m = messageMap[id];
-            const msgEl = createMessageElement(m.role, m.content, m);
-            
-            if (m.role === 'assistant' && m.generation_time) {
-                const header = msgEl.querySelector('.message-header');
-                const timeSpan = document.createElement('span');
-                timeSpan.className = 'processing-time';
-                timeSpan.textContent = `(${m.generation_time}s)`;
-                header.appendChild(timeSpan);
-            }
-
-            addMessageActions(msgEl, m.content, m.role, m.id);
-            el.appendChild(msgEl);
-
-            if (m.sources && m.sources.length > 0) {
-                addSourcesToEl(msgEl, m.sources);
-            }
-
-            const pid = m.parent_id || 'root';
-            const siblings = childrenMap[pid] || [];
-            if (siblings.length > 1) {
-                el.appendChild(createBranchNav(m.id, siblings));
-            }
-        });
-
-
+        visit('root');
         scrollToBottom();
-    }
-
-    function createBranchNav(currentId, siblings) {
-        const idx = siblings.indexOf(currentId);
-        const nav = document.createElement('div');
-        nav.className = 'branch-nav';
-        nav.innerHTML = `
-            <button class="branch-nav-btn prev" ${idx === 0 ? 'disabled' : ''}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
-            </button>
-            <span class="branch-info">${idx + 1} / ${siblings.length}</span>
-            <button class="branch-nav-btn next" ${idx === siblings.length - 1 ? 'disabled' : ''}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
-            </button>
-        `;
-        nav.querySelector('.prev')?.addEventListener('click', () => switchToBranch(siblings[idx - 1]));
-        nav.querySelector('.next')?.addEventListener('click', () => switchToBranch(siblings[idx + 1]));
-        return nav;
-    }
-
-    function switchToBranch(messageId) {
-        let curr = messageId;
-        while (childrenMap[curr] && childrenMap[curr].length > 0) {
-            curr = childrenMap[curr][0];
-        }
-        activeLeafId = curr;
-        renderTree();
     }
 
     function createMessageElement(role, content, messageObj = null) {
