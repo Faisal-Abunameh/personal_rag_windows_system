@@ -1,0 +1,36 @@
+# ═══════════════════════════════════════════════
+# Local RAG System — Dependencies
+# ═══════════════════════════════════════════════
+
+# Web framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+python-multipart>=0.0.18
+aiofiles>=24.1.0
+
+# Document parsing
+markitdown>=0.1.5
+
+# Vector search
+faiss-cpu>=1.7.0
+
+# Embeddings (fallback)
+sentence-transformers>=3.4.0
+
+# NLP
+numpy>=1.26.0
+
+# Database
+aiosqlite>=0.20.0
+
+# HTTP client (for Ollama + NeMo)
+httpx>=0.28.0
+
+# Data validation
+pydantic>=2.10.0
+
+# Configuration
+python-dotenv>=1.0.0
+
+# Caching
+cachetools>=5.5.0
