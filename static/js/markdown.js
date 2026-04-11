@@ -7,16 +7,16 @@ const MarkdownRenderer = (() => {
     const renderer = new marked.Renderer();
 
     // Add copy button to code blocks
-    renderer.code = function (code, language) {
-        const langClass = language ? `language-${language}` : '';
-        const highlighted = language && hljs.getLanguage(language)
-            ? hljs.highlight(code, { language }).value
-            : escapeHtml(code);
+    renderer.code = function ({ text, lang }) {
+        const langClass = lang ? `language-${lang}` : '';
+        const highlighted = lang && hljs.getLanguage(lang)
+            ? hljs.highlight(text, { language: lang }).value
+            : escapeHtml(text);
         return `<pre><code class="${langClass}">${highlighted}</code><button class="code-copy-btn" onclick="MarkdownRenderer.copyCode(this)">Copy</button></pre>`;
     };
 
     // External links open in new tab
-    renderer.link = function (href, title, text) {
+    renderer.link = function ({ href, title, text }) {
         const titleAttr = title ? ` title="${title}"` : '';
         return `<a href="${href}"${titleAttr} target="_blank" rel="noopener">${text}</a>`;
     };

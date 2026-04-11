@@ -16,11 +16,15 @@ class ChatRequest(BaseModel):
     web_search: bool = False
 
 
-class SourceReference(BaseModel):
-    filename: str
-    chunk_text: str
-    relevance_score: float = 0.0
     chunk_index: int = 0
+
+
+class AttachmentInfo(BaseModel):
+    filename: str
+    file_type: Optional[str] = None
+    file_size: Optional[int] = None
+    chunk_count: int = 0
+    filepath: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
@@ -33,6 +37,7 @@ class StreamChunk(BaseModel):
     type: str  # "token", "sources", "done", "error"
     content: str = ""
     sources: list[SourceReference] = []
+    attachments: list[AttachmentInfo] = []
     conversation_id: str = ""
     message_id: str = ""
     generation_time: Optional[float] = None
@@ -54,6 +59,7 @@ class Message(BaseModel):
     role: str
     content: str
     sources: list[SourceReference] = []
+    attachments: list[AttachmentInfo] = []
     created_at: str
     parent_id: Optional[str] = None
     generation_time: Optional[float] = None

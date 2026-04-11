@@ -187,6 +187,9 @@ const App = (() => {
         const select = document.getElementById('model-select');
         if (!select) return;
 
+        // Track the last successful value
+        let previousModel = select.value;
+
         select.addEventListener('change', async () => {
             const model = select.value;
             if (!model) return;
@@ -198,12 +201,16 @@ const App = (() => {
                 const result = await api.post('/api/models/switch', { model });
                 if (result.model_loaded) {
                     showToast(`Now using ${result.model_name}`, 'success');
+                    previousModel = model; // Update success state
                 } else {
                     showToast(`Model set to ${result.model_name} (may need pulling)`, 'warning');
+                    previousModel = model;
                 }
                 await checkStatus();
             } catch (e) {
                 showToast('Failed to switch model: ' + e.message, 'error');
+                // Revert to old model in UI
+                select.value = previousModel;
             } finally {
                 select.classList.remove('switching');
             }
@@ -244,6 +251,9 @@ const App = (() => {
         const select = document.getElementById('embed-model-select');
         if (!select) return;
 
+        // Track the last successful value
+        let previousEmbedModel = select.value;
+
         select.addEventListener('change', async () => {
             const model = select.value;
             if (!model) return;
@@ -261,12 +271,15 @@ const App = (() => {
                         ? `Switched to ${result.model_name} (dim: ${result.dim}). Index rebuilt — re-scan references to re-index.`
                         : `Embeddings now using ${result.model_name}`;
                     showToast(msg, result.needs_reindex ? 'warning' : 'success', 5000);
+                    previousEmbedModel = model;
                 } else {
                     showToast('Switch failed: ' + (result.error || 'Unknown error'), 'error');
+                    select.value = previousEmbedModel;
                 }
                 await checkStatus();
             } catch (e) {
                 showToast('Failed to switch embedding model: ' + e.message, 'error');
+                select.value = previousEmbedModel;
             } finally {
                 select.classList.remove('switching');
             }
@@ -318,21 +331,7 @@ const App = (() => {
         // Periodic status check
         setInterval(checkStatus, 30000);
 
-        // Scan references button
-        document.getElementById('btn-scan-refs')?.addEventListener('click', async () => {
-            showToast('Scanning references directory...', 'info');
-            try {
-                const result = await api.post('/api/references/scan');
-                showToast(`Indexed ${result.indexed} documents`, 'success');
-                await checkStatus();
-                // Refresh KB if we are in that view
-                if (document.getElementById('kb-view').classList.contains('active')) {
-                    KnowledgeBase.refresh();
-                }
-            } catch (e) {
-                showToast('Scan failed: ' + e.message, 'error');
-            }
-        });
+
 
         // View Knowledge Base button
         document.getElementById('btn-view-kb')?.addEventListener('click', () => {

@@ -144,6 +144,7 @@ class LLMClient:
                             if "message" in data and "content" in data["message"]:
                                 token = data["message"]["content"]
                                 if token:
+                                    logger.debug(f"LLM token: {repr(token)}")
                                     yield token
                             if data.get("done", False):
                                 break
@@ -152,6 +153,45 @@ class LLMClient:
         except Exception as e:
             logger.error(f"LLM streaming error: {e}")
             yield f"\n\n⚠️ Error communicating with LLM: {str(e)}"
+
+    async def generate_title(self, user_message: str, assistant_response: str) -> str:
+        """
+        Generate a short, descriptive title for a conversation based on the first interaction.
+        """
+        prompt = (
+            "Summarize the following chat interaction into a short, concise title (max 5 words). "
+            "Do not use quotes, punctuation, or special characters. Use Title Case.\n\n"
+            f"User: {user_message}\n"
+            f"Assistant: {assistant_response}"
+        )
+
+        messages = [{"role": "user", "content": prompt}]
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    f"{self._base_url}/api/chat",
+                    json={
+                        "model": self._model,
+                        "messages": messages,
+                        "stream": False,
+                        "options": {
+                            "temperature": 0.3,
+                            "num_predict": 20,
+                        },
+                    },
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    title = data.get("message", {}).get("content", "").strip()
+                    # Clean up quotes if the LLM included them despite instructions
+                    title = title.strip('"').strip("'").strip()
+                    logger.info(f"Generated conversation title: {title}")
+                    return title if title else "New Chat"
+        except Exception as e:
+            logger.error(f"Title generation error: {e}")
+        
+        return "New Chat"
 
     def _build_messages(
         self,
@@ -167,12 +207,13 @@ class LLMClient:
         sys_prompt = system_prompt or SYSTEM_PROMPT
         if context:
             sys_prompt += (
-                "\n\n--- RETRIEVED CONTEXT ---\n"
-                "Use the following context to answer the user's question. "
-                "Cite the source document when referencing specific information.\n\n"
+                "\n\n--- PROVIDED SOURCE LIST ---\n"
                 f"{context}\n"
-                "--- END CONTEXT ---"
+                "--- END SOURCE LIST ---\n"
             )
+        else:
+            sys_prompt += "\n\n(Note: No specific local context found.)"
+        
         messages.append({"role": "system", "content": sys_prompt})
 
         # Conversation history (sliding window)

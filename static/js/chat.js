@@ -49,8 +49,10 @@ const Chat = (() => {
     async function handleSend(userMsg = null, regenerateParentId = null) {
         if (App.state.isStreaming) return;
 
+        // Ensure we don't treat the click event object as a message string
+        const messageInputText = typeof userMsg === 'string' ? userMsg : null;
         const input = inputEl();
-        let message = userMsg || input?.value.trim();
+        let message = messageInputText || input?.value.trim();
         const attachment = Upload.getAndClearAttachments()[0] || null;
         
         // If regenerating, we retrieve the content from the parent user message
@@ -71,7 +73,17 @@ const Chat = (() => {
         }
         sendBtn().disabled = true;
 
-        startStreaming();
+        // Immediately show the user's message in the UI for feedback
+        let userMsgEl = null;
+        if (!regenerateParentId) {
+            userMsgEl = createMessageElement('user', message);
+            messagesEl()?.appendChild(userMsgEl);
+        } else {
+            // If regenerating, find the existing user message to scroll to
+            userMsgEl = messagesEl()?.querySelector(`.message[data-id="${regenerateParentId}"]`);
+        }
+
+        startStreaming(userMsgEl);
 
         try {
             const resp = await App.api.streamChat(
@@ -148,11 +160,12 @@ const Chat = (() => {
         }
     }
 
-    function startStreaming() {
+    function startStreaming(userMsgEl = null) {
         App.state.isStreaming = true;
         sendBtn()?.classList.add('hidden');
         stopBtn()?.classList.remove('hidden');
 
+        // Create the assistant message element
         const msgEl = createMessageElement('assistant', '');
         const bodyEl = msgEl.querySelector('.message-body');
         const typing = document.createElement('div');
@@ -163,7 +176,13 @@ const Chat = (() => {
         messagesEl()?.appendChild(msgEl);
         currentStreamEl = bodyEl;
         streamedText = '';
-        scrollToBottom();
+
+        if (userMsgEl) {
+            // Option: Smoothly scroll so the USER PROMPT is at the top
+            userMsgEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else {
+            scrollToBottom();
+        }
     }
 
     function appendToStream(text) {
@@ -322,7 +341,9 @@ const Chat = (() => {
 
     function addSources(sources) {
         if (!sources || sources.length === 0) return;
-        addSourcesToEl(null, sources);
+        // Pin to the current streaming message if available, otherwise append to chat
+        const target = currentStreamEl ? currentStreamEl.parentElement : null;
+        addSourcesToEl(target, sources);
     }
 
     function addSourcesToEl(parentEl, sources) {

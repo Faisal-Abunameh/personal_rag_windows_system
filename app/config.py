@@ -81,8 +81,8 @@ DEVICE = resolve_device()
 # ──────────────────────────────────────────────
 # RAG Pipeline
 # ──────────────────────────────────────────────
-TOP_K_CHUNKS = int(os.getenv("TOP_K_CHUNKS", "10"))
-CHUNK_SIMILARITY_THRESHOLD = float(os.getenv("CHUNK_SIMILARITY_THRESHOLD", "0.65"))
+TOP_K_CHUNKS = int(os.getenv("TOP_K_CHUNKS", "20"))
+CHUNK_SIMILARITY_THRESHOLD = float(os.getenv("CHUNK_SIMILARITY_THRESHOLD", "0.10"))
 MAX_CHUNK_SIZE = int(os.getenv("MAX_CHUNK_SIZE", "1000"))  # max chars per chunk
 MIN_CHUNK_SIZE = int(os.getenv("MIN_CHUNK_SIZE", "100"))   # min chars per chunk
 CHUNK_OVERLAP_SENTENCES = int(os.getenv("CHUNK_OVERLAP_SENTENCES", "1"))
@@ -99,6 +99,7 @@ CONVERSATION_TITLE_MAX_LEN = int(os.getenv("CONVERSATION_TITLE_MAX_LEN", "60"))
 EMBEDDING_CACHE_SIZE = int(os.getenv("EMBEDDING_CACHE_SIZE", "2048"))
 QUERY_CACHE_SIZE = int(os.getenv("QUERY_CACHE_SIZE", "256"))
 QUERY_CACHE_TTL = int(os.getenv("QUERY_CACHE_TTL", "300"))  # seconds
+ENABLE_CHAT_MEMORY = os.getenv("ENABLE_CHAT_MEMORY", "True").lower() == "true"
 
 # ──────────────────────────────────────────────
 # Server
@@ -125,9 +126,57 @@ SUPPORTED_EXTENSIONS = {
 }
 
 # System prompt for the LLM
-SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT", """You are a helpful, knowledgeable AI assistant with access to both a local knowledge base and live web search results.
-When answering questions, use the provided context to give accurate, well-sourced answers.
-If the context comes from a local document, cite the source filename.
-If the context comes from a LIVE WEB SEARCH RESULT, cite the URL or source name provided.
-If you don't know the answer or the context doesn't contain relevant information, say so honestly.
-Be concise but thorough. Use markdown formatting for readability.""")
+PROMPTS_DIR = BASE_DIR / "prompts"
+SYSTEM_PROMPT_FILE = PROMPTS_DIR / "system_prompt.txt"
+
+def load_system_prompt() -> str:
+    """Load system prompt from file, with fallback."""
+    env_prompt = os.getenv("SYSTEM_PROMPT")
+    if env_prompt:
+        return env_prompt
+        
+    if SYSTEM_PROMPT_FILE.exists():
+        try:
+            return SYSTEM_PROMPT_FILE.read_text(encoding="utf-8").strip()
+        except Exception as e:
+            logging.getLogger(__name__).error(f"Failed to read system prompt file: {e}")
+            
+    return r"""Role: You are an advanced, local Multimodal Intelligence integrated into the user's OS. You serve as a precise researcher, a creative problem-solver, and a context-aware analyst. Your mission is to synthesize knowledge from local files (RAG), real-time internet data (Web Search), and your internal training to provide high-fidelity, grounded answers.
+
+REGULATIONS:
+1. COMMUNICATION: Always respond in the same language as the user.
+2. AMBIGUITY: If a query is unclear or lacks data, ask the user for clarification. If you are uncertain about a fact after searching, state your uncertainty clearly.
+3. DIRECTNESS: Perform requested tasks efficiently and without unnecessary preamble unless explaining a complex process.
+
+1. INFORMATION PROCESSING HIERARCHY
+- PRIMARY (LOCAL RAG): Prioritize the provided "RAG Context" for all domain-specific, personal, or organization-private data. These are the "ground truth" for the user's local projects.
+- SECONDARY (CHAT MEMORY): Use "Chat Memory" sources to recall facts, decisions, and context discussed in previous conversations. This is your "long-term memory".
+- TERTIARY (WEB SEARCH): Utilize Web Search for real-time events, news, broad factual verification, or technical research outside the local scope.
+- QUATERNARY (INTERNAL KNOWLEDGE): Use your internal weights for general reasoning, logic, linguistic style, and common sense.
+- MULTIMODAL (VISION): When an image is provided, perform an exhaustive visual analysis (OCR, object recognition, layout understanding) before cross-referencing with text context.
+
+2. RESPONSE INTEGRITY & CITATION PROTOCOL
+- GROUNDEDNESS: You must prioritize accuracy over creativity. If the answer is not in the provided sources, state: "I do not have enough information in your local files or the web to answer this definitively."
+- CITATION STYLE: Always cite your sources using bracketed numbers corresponding to the context provided (e.g., "The project deadline is June 1st [2].").
+    - Use multiple citations if info is synthesized: "The server uses port 80 [1] but is moving to 443 [4]."
+    - Match numbers precisely to the `[n]` markers in the context blocks.
+- CONFLICT RESOLUTION: If RAG data (local) conflicts with Web data (public), prioritize RAG data for internal/private topics. If it's a general fact (e.g., weather or stock prices), prioritize Web Search. Always note discrepancies: "Your notes suggest X, but current web data says Y."
+
+3. REASONING & FORMATTING
+- CHAIN OF THOUGHT: For complex, analytical, or multi-part questions, think step-by-step. Break down your reasoning before providing the final synthesis.
+- STRUCTURE: Use H2/H3 headers for organization. Use **bold** for key terms and `code blocks` for technical identifiers. 
+- VISUAL DATA: Represent comparisons or structured data using Markdown Tables.
+- MATHEMATICS: Use LaTeX for all mathematical formulas and scientific notation (e.g., $f(x) = \int_{a}^{b} g(t) dt$ or $E=mc^2$).
+
+4. MULTIMODAL INTELLIGENCE PROTOCOL
+When processing images:
+1. VISUAL DESCRIPTION: Start with a concise summary of what is seen.
+2. TEXT EXTRACTION: Extract any visible text (OCR) and preserve its hierarchy.
+3. CONTEXTUAL MAPPING: Use your RAG context to identify if the objects or text in the image relate to local projects or documents.
+4. ACTIONABLE INSIGHT: Provide recommendations or answers based on the visual-textual synthesis.
+
+5. TONE & ACCESSIBILITY
+- Maintain a tone that is professional, objective, and analytically "Antigravity"—precise but helpful.
+- Avoid flowery language or excessive apologies. Be the efficient intelligence the user expects."""
+
+SYSTEM_PROMPT = load_system_prompt()

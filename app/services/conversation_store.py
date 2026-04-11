@@ -89,11 +89,19 @@ async def get_conversation(conv_id: str) -> Optional[ConversationDetail]:
             except (json.JSONDecodeError, TypeError):
                 pass
 
+            attachments = []
+            try:
+                raw_att = json.loads(mr.get("attachments") or "[]")
+                attachments = [AttachmentInfo(**a) for a in raw_att]
+            except (json.JSONDecodeError, TypeError):
+                pass
+
             messages.append(Message(
                 id=mr["id"],
                 role=mr["role"],
                 content=mr["content"],
                 sources=sources,
+                attachments=attachments,
                 created_at=mr["created_at"],
                 parent_id=mr["parent_id"],
                 generation_time=mr["generation_time"],
@@ -115,6 +123,7 @@ async def add_message(
     role: str,
     content: str,
     sources: list[dict] = None,
+    attachments: list[dict] = None,
     parent_id: Optional[str] = None,
     generation_time: Optional[float] = None,
 ) -> str:
@@ -124,13 +133,14 @@ async def add_message(
         
     msg_id = str(uuid.uuid4())
     sources_json = json.dumps(sources or [], ensure_ascii=False)
+    attachments_json = json.dumps(attachments or [], ensure_ascii=False)
 
     db = await get_db()
     try:
         await db.execute(
-            "INSERT INTO messages (id, conversation_id, role, content, sources, parent_id, generation_time) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (msg_id, conv_id, role, content, sources_json, parent_id, generation_time),
+            "INSERT INTO messages (id, conversation_id, role, content, sources, attachments, parent_id, generation_time) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (msg_id, conv_id, role, content, sources_json, attachments_json, parent_id, generation_time),
         )
         await db.execute(
             "UPDATE conversations SET updated_at = datetime('now') WHERE id = ?",
@@ -161,11 +171,19 @@ async def get_message(msg_id: str) -> Optional[Message]:
         except (json.JSONDecodeError, TypeError):
             pass
 
+        attachments = []
+        try:
+            raw_att = json.loads(row.get("attachments") or "[]")
+            attachments = [AttachmentInfo(**a) for a in raw_att]
+        except (json.JSONDecodeError, TypeError):
+            pass
+
         return Message(
             id=row["id"],
             role=row["role"],
             content=row["content"],
             sources=sources,
+            attachments=attachments,
             created_at=row["created_at"],
             parent_id=row["parent_id"],
             generation_time=row["generation_time"],
@@ -233,9 +251,3 @@ async def delete_conversation(conv_id: str):
         await db.close()
 
 
-async def auto_title(conv_id: str, first_message: str):
-    """Generate a title from the first user message."""
-    title = first_message.strip()[:60]
-    if len(first_message) > 60:
-        title = title.rsplit(" ", 1)[0] + "..."
-    await update_conversation_title(conv_id, title)

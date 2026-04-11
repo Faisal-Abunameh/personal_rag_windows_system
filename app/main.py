@@ -4,6 +4,7 @@ Sets up routes, middleware, static files, and startup/shutdown events.
 """
 
 import logging
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -17,6 +18,10 @@ from app.services.embeddings import get_embedding_service
 from app.services.vector_store import get_vector_store
 from app.services.llm import get_llm_client
 from app.routers import chat, conversations, documents, references
+from app.services.file_watcher import ReferenceWatcher
+
+# Global watcher instance
+watcher = ReferenceWatcher()
 
 # Configure logging
 logging.basicConfig(
@@ -76,9 +81,14 @@ async def lifespan(app: FastAPI):
     logger.info("  🚀 Ready at http://localhost:8000")
     logger.info("=" * 60)
 
+    # Start file watcher for real-time indexing
+    loop = asyncio.get_running_loop()
+    watcher.start(loop)
+
     yield
 
     # Shutdown
+    watcher.stop()
     vector_store.save()
     logger.info("FAISS index saved. Goodbye!")
 

@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS messages (
     role            TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system')),
     content         TEXT NOT NULL,
     sources         TEXT DEFAULT '[]',
+    attachments     TEXT DEFAULT '[]',
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     parent_id       TEXT,
     generation_time REAL,
@@ -71,6 +72,11 @@ async def init_db():
             
         try:
             await db.execute("ALTER TABLE messages ADD COLUMN generation_time REAL;")
+        except aiosqlite.OperationalError:
+            pass  # column exists
+
+        try:
+            await db.execute("ALTER TABLE messages ADD COLUMN attachments TEXT DEFAULT '[]';")
         except aiosqlite.OperationalError:
             pass  # column exists
 
