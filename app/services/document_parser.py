@@ -10,6 +10,11 @@ from markitdown import MarkItDown
 
 from app.config import SUPPORTED_EXTENSIONS
 
+try:
+    import fitz  # PyMuPDF
+except ImportError:
+    fitz = None
+
 logger = logging.getLogger(__name__)
 
 # Singleton MarkItDown instance
@@ -24,12 +29,25 @@ def get_markitdown() -> MarkItDown:
     return _md_instance
 
 
+def _parse_pdf_robustly(path: Path) -> str:
+    """Directly extract text from PDF using PyMuPDF."""
+    if fitz is None:
+        raise ImportError("PyMuPDF (fitz) is not installed.")
+
+    text = []
+    try:
+        with fitz.open(str(path)) as doc:
+            for page in doc:
+                text.append(page.get_text())
+        return "\n\n".join(text)
+    except Exception as e:
+        logger.error(f"PyMuPDF failed to parse {path.name}: {e}")
+        raise
+
+
 def parse_document(file_path: str | Path) -> dict:
     """
     Parse a document file and return its content as markdown.
-
-    Returns:
-        dict with keys: text, filename, filepath, file_type, file_size
     """
     path = Path(file_path)
 
@@ -43,19 +61,58 @@ def parse_document(file_path: str | Path) -> dict:
             f"Supported: {', '.join(sorted(SUPPORTED_EXTENSIONS))}"
         )
 
-    logger.info(f"Parsing document: {path.name}")
+    logger.info(f"Parsing document: {path.name} ({ext})")
 
-    md = get_markitdown()
-    try:
-        result = md.convert(str(path))
-        text = result.text_content or ""
-    except Exception as e:
-        logger.error(f"Failed to parse {path.name}: {e}")
-        # Fallback: try reading as plain text
+    text = ""
+    error = None
+
+    # Priority 1: Specialized PDF parsing (PyMuPDF is fast and reliable for text)
+    if ext == ".pdf" and fitz:
         try:
-            text = path.read_text(encoding="utf-8", errors="ignore")
-        except Exception:
-            raise RuntimeError(f"Cannot parse {path.name}: {e}")
+            text = _parse_pdf_robustly(path)
+        except Exception as e:
+            error = e
+            logger.warning(f"PyMuPDF failed, falling back to MarkItDown: {e}")
+
+    # Priority 2: General MarkItDown parsing
+    if not text:
+        md = get_markitdown()
+        try:
+            result = md.convert(str(path))
+            text = result.text_content or ""
+        except Exception as e:
+            error = e
+            # Log specific advice if dependencies are missing
+            err_msg = str(e).lower()
+            if "dependency" in err_msg or "not installed" in err_msg:
+                logger.error(f"MarkItDown missing dependencies for {ext}: {e}")
+            else:
+                logger.error(f"MarkItDown failed to parse {path.name}: {e}")
+
+    # Priority 3: Robust Text Fallback (Handle code, markdown, logs, and data)
+    if not text:
+        # Define extensions that are safe to read as plain text
+        text_safe = {
+            ".txt", ".md", ".csv", ".json", ".xml", ".html", ".htm", ".log",
+            ".py", ".js", ".ts", ".css", ".sql", ".yaml", ".yml", ".ini",
+            ".env", ".c", ".cpp", ".h", ".cs", ".go", ".rs", ".sh"
+        }
+        if ext in text_safe:
+            try:
+                # Use a larger lookahead for encoding detection if needed
+                text = path.read_text(encoding="utf-8", errors="ignore")
+            except Exception as e:
+                error = e
+                logger.error(f"Plain text fallback failed for {path.name}: {e}")
+
+    if not text and error:
+        # If we failed on a binary format like Excel, explain why
+        if ext in {".xlsx", ".xls", ".docx", ".doc", ".pptx", ".ppt"}:
+             raise RuntimeError(
+                 f"Cannot parse {path.name}. This usually requires additional libraries "
+                 f"(openpyxl, python-docx, etc.) or the file is corrupted. Original error: {error}"
+             )
+        raise RuntimeError(f"Cannot parse {path.name}: {error}")
 
     return {
         "text": text.strip(),

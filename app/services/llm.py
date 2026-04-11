@@ -1,5 +1,5 @@
 """
-Ollama / Gemma 4 LLM client.
+Ollama LLM client — supports any Ollama model.
 Handles streaming chat completions and model management.
 """
 
@@ -29,6 +29,7 @@ class LLMClient:
         self._base_url = OLLAMA_BASE_URL
         self._model = LLM_MODEL
         self._available = False
+        self._model_loaded = False
 
     async def check_health(self) -> bool:
         """Check if Ollama is running and the model is available."""
@@ -40,16 +41,47 @@ class LLMClient:
                     model_names = [m.get("name", "").split(":")[0] for m in models]
                     self._available = True
                     if self._model.split(":")[0] in model_names:
+                        self._model_loaded = True
                         return True
                     logger.warning(
                         f"Model '{self._model}' not found. "
                         f"Available: {model_names}"
                     )
+                    self._model_loaded = False
                     return False
         except Exception as e:
             logger.error(f"Ollama not reachable: {e}")
             self._available = False
+            self._model_loaded = False
             return False
+
+    async def list_available_models(self) -> list[dict]:
+        """List all models available in Ollama."""
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{self._base_url}/api/tags")
+                if resp.status_code == 200:
+                    models = resp.json().get("models", [])
+                    return [
+                        {
+                            "name": m.get("name", ""),
+                            "size": m.get("size", 0),
+                            "modified_at": m.get("modified_at", ""),
+                            "family": m.get("details", {}).get("family", ""),
+                            "parameter_size": m.get("details", {}).get("parameter_size", ""),
+                            "quantization": m.get("details", {}).get("quantization_level", ""),
+                        }
+                        for m in models
+                    ]
+        except Exception as e:
+            logger.error(f"Failed to list models: {e}")
+        return []
+
+    def set_model(self, model_name: str):
+        """Switch the active model at runtime."""
+        logger.info(f"Switching model: {self._model} -> {model_name}")
+        self._model = model_name
+        self._model_loaded = False  # Will be verified on next health check
 
     async def pull_model(self) -> bool:
         """Pull the configured model from Ollama."""
@@ -112,6 +144,7 @@ class LLMClient:
                             if "message" in data and "content" in data["message"]:
                                 token = data["message"]["content"]
                                 if token:
+                                    logger.debug(f"LLM token: {repr(token)}")
                                     yield token
                             if data.get("done", False):
                                 break
@@ -120,6 +153,45 @@ class LLMClient:
         except Exception as e:
             logger.error(f"LLM streaming error: {e}")
             yield f"\n\n⚠️ Error communicating with LLM: {str(e)}"
+
+    async def generate_title(self, user_message: str, assistant_response: str) -> str:
+        """
+        Generate a short, descriptive title for a conversation based on the first interaction.
+        """
+        prompt = (
+            "Summarize the following chat interaction into a short, concise title (max 5 words). "
+            "Do not use quotes, punctuation, or special characters. Use Title Case.\n\n"
+            f"User: {user_message}\n"
+            f"Assistant: {assistant_response}"
+        )
+
+        messages = [{"role": "user", "content": prompt}]
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    f"{self._base_url}/api/chat",
+                    json={
+                        "model": self._model,
+                        "messages": messages,
+                        "stream": False,
+                        "options": {
+                            "temperature": 0.3,
+                            "num_predict": 20,
+                        },
+                    },
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    title = data.get("message", {}).get("content", "").strip()
+                    # Clean up quotes if the LLM included them despite instructions
+                    title = title.strip('"').strip("'").strip()
+                    logger.info(f"Generated conversation title: {title}")
+                    return title if title else "New Chat"
+        except Exception as e:
+            logger.error(f"Title generation error: {e}")
+        
+        return "New Chat"
 
     def _build_messages(
         self,
@@ -135,12 +207,13 @@ class LLMClient:
         sys_prompt = system_prompt or SYSTEM_PROMPT
         if context:
             sys_prompt += (
-                "\n\n--- RETRIEVED CONTEXT ---\n"
-                "Use the following context to answer the user's question. "
-                "Cite the source document when referencing specific information.\n\n"
+                "\n\n--- PROVIDED SOURCE LIST ---\n"
                 f"{context}\n"
-                "--- END CONTEXT ---"
+                "--- END SOURCE LIST ---\n"
             )
+        else:
+            sys_prompt += "\n\n(Note: No specific local context found.)"
+        
         messages.append({"role": "system", "content": sys_prompt})
 
         # Conversation history (sliding window)

@@ -47,10 +47,11 @@ const App = (() => {
             return resp.json();
         },
 
-        streamChat(message, conversationId, attachment) {
+        streamChat(message, conversationId, attachment, webSearch = false) {
             const formData = new FormData();
             formData.append('message', message);
             if (attachment) formData.append('attachment', attachment);
+            if (webSearch) formData.append('web_search', 'true');
 
             const url = conversationId
                 ? `/api/chat/${conversationId}`
@@ -99,6 +100,17 @@ const App = (() => {
             ? `${s.model_name} · ${s.total_chunks} chunks`
             : 'LLM offline';
         el.innerHTML = `<span class="status-dot ${dotClass}"></span>${label}`;
+
+        // Dynamically update model name in UI
+        const modelDisplay = s.model_name || 'Ollama';
+        const subtitle = document.getElementById('welcome-subtitle');
+        if (subtitle) {
+            subtitle.innerHTML = `Powered by ${modelDisplay} &bull; FAISS &bull; NeMo Retriever`;
+        }
+        const hint = document.getElementById('input-hint-text');
+        if (hint) {
+            hint.textContent = `Local LLM uses ${modelDisplay} + FAISS RAG. Responses may not always be accurate.`;
+        }
     }
 
     // ─── Keyboard Shortcuts ───
@@ -133,10 +145,176 @@ const App = (() => {
         Chat.endStreaming();
     }
 
+    // ─── Model Picker ───
+    async function loadModels() {
+        const select = document.getElementById('model-select');
+        if (!select) return;
+
+        try {
+            const data = await api.get('/api/models');
+            const models = data.models || [];
+            const current = data.current_model || '';
+
+            if (models.length === 0) {
+                select.innerHTML = '<option value="">No models found</option>';
+                return;
+            }
+
+            select.innerHTML = models.map(m => {
+                const name = m.name;
+                const size = formatSize(m.size);
+                const param = m.parameter_size ? ` · ${m.parameter_size}` : '';
+                const isSelected = name === current ||
+                    name.split(':')[0] === current.split(':')[0];
+                return `<option value="${name}" ${isSelected ? 'selected' : ''}>${name}${param} (${size})</option>`;
+            }).join('');
+
+        } catch (e) {
+            console.error('Failed to load models:', e);
+            select.innerHTML = '<option value="">Failed to load</option>';
+        }
+    }
+
+    function formatSize(bytes) {
+        if (!bytes) return '?';
+        const gb = bytes / (1024 ** 3);
+        if (gb >= 1) return `${gb.toFixed(1)} GB`;
+        const mb = bytes / (1024 ** 2);
+        return `${mb.toFixed(0)} MB`;
+    }
+
+    function initModelSelector() {
+        const select = document.getElementById('model-select');
+        if (!select) return;
+
+        // Track the last successful value
+        let previousModel = select.value;
+
+        select.addEventListener('change', async () => {
+            const model = select.value;
+            if (!model) return;
+
+            select.classList.add('switching');
+            showToast(`Switching to ${model}...`, 'info', 2000);
+
+            try {
+                const result = await api.post('/api/models/switch', { model });
+                if (result.model_loaded) {
+                    showToast(`Now using ${result.model_name}`, 'success');
+                    previousModel = model; // Update success state
+                } else {
+                    showToast(`Model set to ${result.model_name} (may need pulling)`, 'warning');
+                    previousModel = model;
+                }
+                await checkStatus();
+            } catch (e) {
+                showToast('Failed to switch model: ' + e.message, 'error');
+                // Revert to old model in UI
+                select.value = previousModel;
+            } finally {
+                select.classList.remove('switching');
+            }
+        });
+    }
+
+    // ─── Embedding Model Picker ───
+    async function loadEmbeddingModels() {
+        const select = document.getElementById('embed-model-select');
+        if (!select) return;
+
+        try {
+            const data = await api.get('/api/embeddings/models');
+            const models = data.models || [];
+            const current = data.current_model || '';
+
+            if (models.length === 0) {
+                select.innerHTML = '<option value="">No models found</option>';
+                return;
+            }
+
+            select.innerHTML = models.map(m => {
+                const name = m.name;
+                const size = formatSize(m.size);
+                const badge = m.mode === 'sentence-transformers' ? ' [ST]' : '';
+                const isSelected = name === current ||
+                    name.split(':')[0] === current.split(':')[0];
+                return `<option value="${name}" data-mode="${m.mode}" ${isSelected ? 'selected' : ''}>${name}${badge} (${size})</option>`;
+            }).join('');
+
+        } catch (e) {
+            console.error('Failed to load embedding models:', e);
+            select.innerHTML = '<option value="">Failed to load</option>';
+        }
+    }
+
+    function initEmbeddingSelector() {
+        const select = document.getElementById('embed-model-select');
+        if (!select) return;
+
+        // Track the last successful value
+        let previousEmbedModel = select.value;
+
+        select.addEventListener('change', async () => {
+            const model = select.value;
+            if (!model) return;
+
+            const selectedOption = select.options[select.selectedIndex];
+            const mode = selectedOption?.dataset?.mode || 'ollama';
+
+            select.classList.add('switching');
+            showToast(`Switching embeddings to ${model}...`, 'info', 3000);
+
+            try {
+                const result = await api.post('/api/embeddings/switch', { model, mode });
+                if (result.success) {
+                    const msg = result.needs_reindex
+                        ? `Switched to ${result.model_name} (dim: ${result.dim}). Index rebuilt — re-scan references to re-index.`
+                        : `Embeddings now using ${result.model_name}`;
+                    showToast(msg, result.needs_reindex ? 'warning' : 'success', 5000);
+                    previousEmbedModel = model;
+                } else {
+                    showToast('Switch failed: ' + (result.error || 'Unknown error'), 'error');
+                    select.value = previousEmbedModel;
+                }
+                await checkStatus();
+            } catch (e) {
+                showToast('Failed to switch embedding model: ' + e.message, 'error');
+                select.value = previousEmbedModel;
+            } finally {
+                select.classList.remove('switching');
+            }
+        });
+    }
+
+    function switchView(viewName) {
+        console.log('Switching view to:', viewName);
+        const chatView = document.getElementById('chat-view');
+        const kbView = document.getElementById('kb-view');
+        
+        if (viewName === 'chat') {
+            chatView.classList.add('active');
+            chatView.classList.remove('hidden');
+            kbView.classList.add('hidden');
+            kbView.classList.remove('active');
+            document.getElementById('btn-view-kb')?.classList.remove('active-nav');
+        } else if (viewName === 'kb') {
+            chatView.classList.add('hidden');
+            chatView.classList.remove('active');
+            kbView.classList.add('active');
+            kbView.classList.remove('hidden');
+            document.getElementById('btn-view-kb')?.classList.add('active-nav');
+            KnowledgeBase.refresh();
+        }
+    }
+
     // ─── Init ───
     async function init() {
         initShortcuts();
+        initModelSelector();
+        initEmbeddingSelector();
         await checkStatus();
+        await loadModels();
+        await loadEmbeddingModels();
         await Sidebar.loadConversations();
 
         // Welcome hint clicks
@@ -153,15 +331,24 @@ const App = (() => {
         // Periodic status check
         setInterval(checkStatus, 30000);
 
-        // Scan references button
-        document.getElementById('btn-scan-refs')?.addEventListener('click', async () => {
-            showToast('Scanning references directory...', 'info');
-            try {
-                const result = await api.post('/api/references/scan');
-                showToast(`Indexed ${result.indexed} documents`, 'success');
-                await checkStatus();
-            } catch (e) {
-                showToast('Scan failed: ' + e.message, 'error');
+
+
+        // View Knowledge Base button
+        document.getElementById('btn-view-kb')?.addEventListener('click', () => {
+            const isKB = document.getElementById('kb-view').classList.contains('active');
+            switchView(isKB ? 'chat' : 'kb');
+        });
+
+        // Handle "New Chat" button to ensure we switch back to chat view
+        document.getElementById('btn-new-chat')?.addEventListener('click', () => {
+            switchView('chat');
+        });
+
+        // Use event delegation to handle clicks on conversation items in the sidebar
+        document.getElementById('conversation-list')?.addEventListener('click', (e) => {
+            const item = e.target.closest('.conv-item');
+            if (item && !e.target.closest('.conv-action-btn')) {
+                switchView('chat');
             }
         });
     }
@@ -176,5 +363,9 @@ const App = (() => {
         newChat,
         stopStreaming,
         checkStatus,
+        loadModels,
+        loadEmbeddingModels,
+        switchView,
     };
 })();
+

@@ -24,6 +24,8 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 async def chat(
     conversation_id: Optional[str] = None,
     message: str = Form(...),
+    web_search: bool = Form(False),
+    parent_id: Optional[str] = Form(None),
     attachment: Optional[UploadFile] = File(None),
 ):
     """
@@ -47,6 +49,8 @@ async def chat(
                 user_message=message,
                 conversation_id=conversation_id,
                 attachment_path=attachment_path,
+                web_search=web_search,
+                parent_id=parent_id,
             ):
                 yield f"data: {json.dumps(chunk)}\n\n"
         except Exception as e:

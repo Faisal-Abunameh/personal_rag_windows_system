@@ -108,6 +108,11 @@ const Sidebar = (() => {
         setActive(id);
 
         try {
+            // Force return to chat view
+            if (typeof App.switchView === 'function') {
+                App.switchView('chat');
+            }
+            
             const conv = await App.api.get(`/api/conversations/${id}`);
             Chat.loadConversation(conv);
         } catch (e) {
