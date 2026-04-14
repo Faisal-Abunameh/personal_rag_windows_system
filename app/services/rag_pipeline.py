@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from typing import AsyncGenerator, Optional
 
-from app.config import REFERENCES_DIR, UPLOADS_DIR, ENABLE_CHAT_MEMORY
+import app.config as config
 from app.models import SourceReference, AttachmentInfo
 from app.services.document_parser import parse_document, scan_directory
 from app.services.chunker import semantic_chunk
@@ -17,6 +17,7 @@ from app.services.vector_store import get_vector_store
 from app.services.llm import get_llm_client
 from app.services import conversation_store
 from app.services.cache import query_cache
+from app.services.memory import get_memory_service
 
 logger = logging.getLogger(__name__)
 
@@ -101,9 +102,9 @@ async def index_document(file_path: str | Path, source: str = "upload", custom_s
 
 async def index_references_directory() -> list[dict]:
     """Scan and index all documents in the references directory."""
-    REFERENCES_DIR.mkdir(parents=True, exist_ok=True)
+    config.REFERENCES_DIR.mkdir(parents=True, exist_ok=True)
 
-    files = scan_directory(REFERENCES_DIR)
+    files = scan_directory(config.REFERENCES_DIR)
     if not files:
         logger.info("No files found in references directory")
         return []
@@ -125,7 +126,7 @@ async def index_references_directory() -> list[dict]:
             continue
         try:
             # Use relative path as source ID for references to handle deep structures correctly
-            rel_path = str(f.relative_to(REFERENCES_DIR))
+            rel_path = str(f.relative_to(config.REFERENCES_DIR))
             result = await index_document(f, source="reference", custom_source_id=rel_path)
             results.append(result)
         except Exception as e:
@@ -133,6 +134,33 @@ async def index_references_directory() -> list[dict]:
             results.append({"filename": f.name, "chunks": 0, "error": str(e)})
 
     return results
+    
+
+async def reindex_all_references() -> dict:
+    """Clear and fully rebuild the reference index."""
+    vector_store = get_vector_store()
+    
+    # 1. Clear database entries for references
+    from app.database import get_db
+    db = await get_db()
+    try:
+        await db.execute("DELETE FROM documents WHERE source = 'reference'")
+        await db.commit()
+    finally:
+        await db.close()
+        
+    # 2. Clear vectors
+    vector_store.clear()
+    vector_store.save()
+    
+    # 3. Scan and index again
+    results = await index_references_directory()
+    
+    return {
+        "success": True,
+        "indexed_count": len(results),
+        "results": results
+    }
 
 
 def retrieve_context(query: str, top_k: int = None) -> tuple[list[dict], list[SourceReference]]:
@@ -149,7 +177,6 @@ def retrieve_context(query: str, top_k: int = None) -> tuple[list[dict], list[So
 
     embedding_svc = get_embedding_service()
     vector_store = get_vector_store()
-    from app.config import CHUNK_SIMILARITY_THRESHOLD
 
     # Embed query
     query_embedding = embedding_svc.embed_texts([query])[0]
@@ -166,7 +193,7 @@ def retrieve_context(query: str, top_k: int = None) -> tuple[list[dict], list[So
     logger.info(f"RAG search: Top similarity score found: {top_score:.4f} (query: '{query[:50]}...')")
 
     # Filter by similarity threshold
-    threshold = CHUNK_SIMILARITY_THRESHOLD
+    threshold = config.CHUNK_SIMILARITY_THRESHOLD
     results = [r for r in results if r.get("score", 0.0) >= threshold]
     
     if not results:
@@ -257,7 +284,8 @@ async def chat_with_rag(
                 "content": f"✅ Indexed {result['filename']} ({result['chunks']} chunks)",
             }
         except Exception as e:
-            yield {"type": "info", "content": f"⚠️ Failed to process attachment: {e}"}
+            err_msg = str(e) or repr(e)
+            yield {"type": "info", "content": f"⚠️ Failed to process attachment: {err_msg}"}
 
     # Save user message (unless regenerating)
     user_msg_id = parent_id
@@ -294,13 +322,37 @@ async def chat_with_rag(
             else:
                 yield {"type": "info", "content": "⚠️ No web results found"}
         except Exception as e:
-            logger.error(f"Web search error in pipeline: {e}")
-            yield {"type": "info", "content": f"⚠️ Web search failed: {e}"}
+            err_msg = str(e) or repr(e)
+            logger.error(f"Web search error in pipeline: {err_msg}")
+            yield {"type": "info", "content": f"⚠️ Web search failed: {err_msg}"}
 
     # Retrieve context from FAISS
-    chunks, sources = retrieve_context(user_message)
-    if chunks:
-        all_source_data.extend(chunks)
+    try:
+        chunks, sources = retrieve_context(user_message)
+        if chunks:
+            all_source_data.extend(chunks)
+    except Exception as e:
+        err_msg = str(e) or repr(e)
+        logger.error(f"Context retrieval error: {err_msg}")
+        yield {"type": "info", "content": f"⚠️ Context retrieval failed: {err_msg}"}
+        chunks, sources = [], []
+    
+    # Retrieve mem0 memories
+    mem0_context = ""
+    if config.ENABLE_MEM0:
+        yield {"type": "info", "content": "🧠 Recalling relevant memories..."}
+        try:
+            memory_svc = get_memory_service()
+            memories = await memory_svc.search(user_message, conversation_id)
+            if memories:
+                mem0_context = "\n".join([f"- {m}" for m in memories])
+                yield {"type": "info", "content": f"✅ Recalled {len(memories)} relevant memories"}
+        except Exception as e:
+            import traceback
+            err_msg = str(e) or repr(e)
+            logger.error(f"Mem0 search error: {err_msg}")
+            logger.error(traceback.format_exc())
+            yield {"type": "info", "content": f"⚠️ Memory recall failed: {err_msg}"}
     
     # Format unified context with numbering [1], [2], etc.
     formatted_parts = []
@@ -328,17 +380,27 @@ async def chat_with_rag(
 
     # Stream LLM response
     full_response = ""
-    async for token in llm.stream_chat(
-        user_message=user_message,
-        context=full_context,
-        conversation_history=history[:-1],  # Exclude the message we just added
-    ):
-        logger.info(f"LLM Token received: {repr(token)}")
-        full_response += token
-        yield {"type": "token", "content": token}
+    
+    # Final context formatting: Combine RAG docs + Web + mem0
+    context_to_send = full_context
+    if mem0_context:
+        context_to_send += f"\n\n--- RELEVANT MEMORIES ---\n{mem0_context}\n--- END MEMORIES ---\n"
 
-    # Fallback for completely empty responses (Gemma/local models can sometimes be too silent)
-    # Aggressive check for any printable alphanumeric content using regex
+    try:
+        async for token in llm.stream_chat(
+            user_message=user_message,
+            context=context_to_send,
+            conversation_history=history[:-1],  # Exclude the message we just added
+        ):
+            full_response += token
+            yield {"type": "token", "content": token}
+    except Exception as e:
+        import traceback
+        logger.error(f"LLM Stream error: {e}")
+        logger.error(traceback.format_exc())
+        yield {"type": "error", "content": f"LLM error: {e}"}
+
+    # Fallback for completely empty responses
     import re
     cleaned_resp = re.sub(r'[\s\u200b\ufeff\x00-\x1f]+', '', full_response)
     is_empty = not cleaned_resp
@@ -370,11 +432,23 @@ async def chat_with_rag(
             logger.error(f"Failed to auto-generate title: {e}")
 
     # Indexed turn in Eternal Memory if enabled
-    if ENABLE_CHAT_MEMORY:
+    if config.ENABLE_CHAT_MEMORY:
         try:
             await index_chat_turn(user_message, full_response, conversation_id, ast_msg_id, attachments_data)
         except Exception as e:
             logger.error(f"Failed to index chat turn in memory: {e}")
+
+    # Save turn to mem0
+    if config.ENABLE_MEM0:
+        try:
+            memory_svc = get_memory_service()
+            messages = [
+                {"role": "user", "content": user_message},
+                {"role": "assistant", "content": full_response}
+            ]
+            await memory_svc.add(messages, conversation_id)
+        except Exception as e:
+            logger.error(f"Failed to save turn to mem0: {e}")
 
     yield {
         "type": "done",

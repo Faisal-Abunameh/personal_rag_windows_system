@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 from markitdown import MarkItDown
 
-from app.config import SUPPORTED_EXTENSIONS
+import app.config as config
 
 try:
     import fitz  # PyMuPDF
@@ -55,10 +55,10 @@ def parse_document(file_path: str | Path) -> dict:
         raise FileNotFoundError(f"File not found: {path}")
 
     ext = path.suffix.lower()
-    if ext not in SUPPORTED_EXTENSIONS:
+    if ext not in config.SUPPORTED_EXTENSIONS:
         raise ValueError(
             f"Unsupported file type: {ext}. "
-            f"Supported: {', '.join(sorted(SUPPORTED_EXTENSIONS))}"
+            f"Supported: {', '.join(sorted(config.SUPPORTED_EXTENSIONS))}"
         )
 
     logger.info(f"Parsing document: {path.name} ({ext})")
@@ -141,7 +141,6 @@ def parse_documents_batch(file_paths: list[str | Path]) -> list[dict]:
             })
     return results
 
-
 def scan_directory(directory: str | Path) -> list[Path]:
     """Scan a directory for supported documents."""
     dir_path = Path(directory)
@@ -150,7 +149,7 @@ def scan_directory(directory: str | Path) -> list[Path]:
         return []
 
     files = []
-    for ext in SUPPORTED_EXTENSIONS:
+    for ext in config.SUPPORTED_EXTENSIONS:
         files.extend(dir_path.rglob(f"*{ext}"))
 
     logger.info(f"Found {len(files)} supported files in {dir_path}")

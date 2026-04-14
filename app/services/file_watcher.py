@@ -10,7 +10,7 @@ from pathlib import Path
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-from app.config import REFERENCES_DIR, SUPPORTED_EXTENSIONS
+import app.config as config
 from app.services.rag_pipeline import index_document
 from app.services.vector_store import get_vector_store
 
@@ -47,13 +47,13 @@ class ReferenceHandler(FileSystemEventHandler):
         path = Path(file_path_str)
         
         # Check extension
-        if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+        if path.suffix.lower() not in config.SUPPORTED_EXTENSIONS:
             return
 
         # For "deleted" from moved/deleted events, the file doesn't exist anymore
         # but we still need the relative path to remove it from the index.
         try:
-            rel_path = str(path.relative_to(REFERENCES_DIR))
+            rel_path = str(path.relative_to(config.REFERENCES_DIR))
         except ValueError:
             # Path might be outside references dir if moved out
             rel_path = path.name
@@ -80,15 +80,39 @@ class ReferenceHandler(FileSystemEventHandler):
             )
 
     async def _async_index(self, path: Path, rel_path: str):
-        try:
-            # Wait a tiny bit for the file to be fully written/released by OS
-            await asyncio.sleep(0.5)
-            if not path.exists():
-                logger.warning(f"File vanished before indexing: {rel_path}")
-                return
-            await index_document(path, source="reference", custom_source_id=rel_path)
-        except Exception as e:
-            logger.error(f"Auto-index failed for {rel_path}: {e}")
+        """Indexes a document with retries for OS locking."""
+        max_retries = 3
+        retry_delay = 1.0
+        
+        for attempt in range(max_retries):
+            try:
+                # Wait for the file to be fully written/released by OS
+                await asyncio.sleep(retry_delay * (attempt + 1))
+                
+                if not path.exists():
+                    logger.warning(f"File vanished before indexing: {rel_path}")
+                    return
+                
+                # Try to open it to check if it's locked
+                try:
+                    with open(path, "rb"):
+                        pass
+                except (IOError, OSError):
+                    logger.debug(f"File locked, retrying {attempt+1}/{max_retries}: {rel_path}")
+                    continue
+
+                await index_document(path, source="reference", custom_source_id=rel_path)
+                return # Success
+            except Exception as e:
+                err_msg = str(e) or repr(e)
+                if "Dimension mismatch" in err_msg:
+                    logger.error(f"Auto-index failed for {rel_path}: {err_msg}")
+                    return # Don't retry for fatal dimension errors
+                
+                if attempt < max_retries - 1:
+                    logger.debug(f"Retry {attempt+1} indexing {rel_path} due to error: {err_msg}")
+                    continue
+                logger.error(f"Auto-index failed for {rel_path} after {max_retries} attempts: {err_msg}")
 
 class ReferenceWatcher:
     def __init__(self):
@@ -96,14 +120,14 @@ class ReferenceWatcher:
         self.handler = None
 
     def start(self, loop: asyncio.AbstractEventLoop):
-        if not REFERENCES_DIR.exists():
-            REFERENCES_DIR.mkdir(parents=True, exist_ok=True)
+        if not config.REFERENCES_DIR.exists():
+            config.REFERENCES_DIR.mkdir(parents=True, exist_ok=True)
             
         self.handler = ReferenceHandler(loop)
         self.observer = Observer()
-        self.observer.schedule(self.handler, str(REFERENCES_DIR), recursive=True)
+        self.observer.schedule(self.handler, str(config.REFERENCES_DIR), recursive=True)
         self.observer.start()
-        logger.info(f"👀 Reference watcher started on {REFERENCES_DIR}")
+        logger.info(f"👀 Reference watcher started on {config.REFERENCES_DIR}")
 
     def stop(self):
         if self.observer:

@@ -376,11 +376,23 @@ const Chat = (() => {
         if (!el) return;
         el.innerHTML = `<div id="welcome-screen" class="welcome-screen">
             <h1 class="welcome-title">Local LLM</h1>
-            <p id="welcome-subtitle" class="welcome-subtitle">Powered by Ollama &bull; FAISS &bull; Web Search</p>
             <div class="welcome-hints">
-                <div class="hint-card" data-hint="Summarize my local documents">📄<span>Summarize docs</span></div>
-                <div class="hint-card" data-hint="What is Apple's stock price today?">🌍<span>Stock Update</span></div>
-                <div class="hint-card" data-hint="Analyze and compare the references">📊<span>Comparison</span></div>
+                <div class="hint-card" data-hint="Summarize the key findings from my documents">
+                    <span class="hint-icon">📄</span>
+                    <span>Summarize documents</span>
+                </div>
+                <div class="hint-card" data-hint="What are the main topics covered in my references?">
+                    <span class="hint-icon">🔍</span>
+                    <span>Search knowledge base</span>
+                </div>
+                <div class="hint-card" data-hint="Compare and contrast the information in my uploaded files">
+                    <span class="hint-icon">📊</span>
+                    <span>Analyze & compare</span>
+                </div>
+                <div class="hint-card" data-hint="Help me draft a report based on my documents">
+                    <span class="hint-icon">✍️</span>
+                    <span>Draft from references</span>
+                </div>
             </div>
         </div>`;
         document.querySelectorAll('.hint-card').forEach(card => card.addEventListener('click', () => {

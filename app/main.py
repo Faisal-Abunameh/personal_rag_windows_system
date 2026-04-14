@@ -12,12 +12,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from app.config import STATIC_DIR, REFERENCES_DIR, DATA_DIR, DEVICE
+import app.config as config
 from app.database import init_db
 from app.services.embeddings import get_embedding_service
 from app.services.vector_store import get_vector_store
 from app.services.llm import get_llm_client
-from app.routers import chat, conversations, documents, references
+from app.routers import chat, conversations, documents, references, settings
 from app.services.file_watcher import ReferenceWatcher
 
 # Global watcher instance
@@ -40,8 +40,8 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 60)
 
     # Create directories
-    REFERENCES_DIR.mkdir(parents=True, exist_ok=True)
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    config.REFERENCES_DIR.mkdir(parents=True, exist_ok=True)
+    config.DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     # Initialize database
     await init_db()
@@ -50,7 +50,7 @@ async def lifespan(app: FastAPI):
     # Initialize embedding service
     embedding_svc = get_embedding_service()
     await embedding_svc.initialize()
-    logger.info(f"✅ Embeddings ready ({embedding_svc.mode}: {embedding_svc.model_name}) on {DEVICE}")
+    logger.info(f"✅ Embeddings ready ({embedding_svc.mode}: {embedding_svc.model_name}) on {config.DEVICE}")
 
     # Initialize FAISS vector store
     vector_store = get_vector_store()
@@ -68,12 +68,13 @@ async def lifespan(app: FastAPI):
             f"'{llm.model_name}' is pulled."
         )
 
-    # Index references directory (background-safe)
+    # Index references directory (Full re-index on every start)
     try:
-        from app.services.rag_pipeline import index_references_directory
-        results = await index_references_directory()
+        from app.services.rag_pipeline import reindex_all_references
+        reindex_data = await reindex_all_references()
+        results = reindex_data.get("results", [])
         if results:
-            logger.info(f"✅ Indexed {len(results)} reference documents")
+            logger.info(f"✅ Successfully re-indexed {len(results)} reference documents")
     except Exception as e:
         logger.warning(f"⚠️  Reference indexing skipped: {e}")
 
@@ -96,7 +97,7 @@ async def lifespan(app: FastAPI):
 # Create FastAPI app
 app = FastAPI(
     title="Local RAG System",
-    description="A local RAG system with any Ollama model, FAISS, and NeMo Retriever",
+    description="A local RAG system using Ollama models and FAISS",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -111,19 +112,20 @@ app.add_middleware(
 )
 
 # Mount static files
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+app.mount("/static", StaticFiles(directory=str(config.STATIC_DIR)), name="static")
 
 # Include API routers
 app.include_router(chat.router)
 app.include_router(conversations.router)
 app.include_router(documents.router)
 app.include_router(references.router)
+app.include_router(settings.router)
 
 
 @app.get("/")
 async def root():
     """Serve the main page."""
-    return FileResponse(str(STATIC_DIR / "index.html"))
+    return FileResponse(str(config.STATIC_DIR / "index.html"))
 
 
 @app.get("/api/status")
@@ -154,8 +156,8 @@ async def system_status():
         "embedding_model": es.model_name,
         "total_documents": doc_count,
         "total_chunks": vs.total_vectors,
-        "references_dir": str(REFERENCES_DIR),
-        "device": DEVICE,
+        "references_dir": str(config.REFERENCES_DIR),
+        "device": config.DEVICE,
     }
 
 

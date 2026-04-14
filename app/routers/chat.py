@@ -12,7 +12,7 @@ from typing import Optional
 from fastapi import APIRouter, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 
-from app.config import UPLOADS_DIR
+import app.config as config
 from app.services.rag_pipeline import chat_with_rag
 
 logger = logging.getLogger(__name__)
@@ -36,9 +36,9 @@ async def chat(
 
     # Handle file upload
     if attachment and attachment.filename:
-        UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+        config.UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
         unique_name = f"{uuid.uuid4().hex[:8]}_{attachment.filename}"
-        attachment_path = str(UPLOADS_DIR / unique_name)
+        attachment_path = str(config.UPLOADS_DIR / unique_name)
         with open(attachment_path, "wb") as f:
             shutil.copyfileobj(attachment.file, f)
         logger.info(f"Saved attachment: {unique_name}")
@@ -54,8 +54,10 @@ async def chat(
             ):
                 yield f"data: {json.dumps(chunk)}\n\n"
         except Exception as e:
+            import traceback
             logger.error(f"Chat stream error: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+            logger.error(traceback.format_exc())
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e) or 'Internal Server Error'})}\n\n"
 
     return StreamingResponse(
         event_stream(),

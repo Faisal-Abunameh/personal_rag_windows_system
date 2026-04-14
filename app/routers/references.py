@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import APIRouter
 
-from app.config import REFERENCES_DIR, SUPPORTED_EXTENSIONS
+import app.config as config
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/references", tags=["references"])
@@ -16,11 +16,11 @@ router = APIRouter(prefix="/api/references", tags=["references"])
 @router.get("")
 async def list_references():
     """List all files in the references directory."""
-    REFERENCES_DIR.mkdir(parents=True, exist_ok=True)
+    config.REFERENCES_DIR.mkdir(parents=True, exist_ok=True)
 
     files = []
-    for f in sorted(REFERENCES_DIR.rglob("*")):
-        if f.is_file() and f.suffix.lower() in SUPPORTED_EXTENSIONS:
+    for f in sorted(config.REFERENCES_DIR.rglob("*")):
+        if f.is_file() and f.suffix.lower() in config.SUPPORTED_EXTENSIONS:
             files.append({
                 "filename": f.name,
                 "filepath": str(f),
@@ -29,7 +29,7 @@ async def list_references():
             })
 
     return {
-        "directory": str(REFERENCES_DIR),
+        "directory": str(config.REFERENCES_DIR),
         "file_count": len(files),
         "files": files,
     }
@@ -41,7 +41,7 @@ async def scan_references():
     from app.services.rag_pipeline import index_references_directory
     results = await index_references_directory()
     return {
-        "directory": str(REFERENCES_DIR),
+        "directory": str(config.REFERENCES_DIR),
         "indexed": len(results),
         "details": results,
     }
@@ -53,17 +53,17 @@ async def references_status():
     from app.services.vector_store import get_vector_store
     vs = get_vector_store()
 
-    REFERENCES_DIR.mkdir(parents=True, exist_ok=True)
+    config.REFERENCES_DIR.mkdir(parents=True, exist_ok=True)
 
     total_files = sum(
-        1 for f in REFERENCES_DIR.rglob("*")
-        if f.is_file() and f.suffix.lower() in SUPPORTED_EXTENSIONS
+        1 for f in config.REFERENCES_DIR.rglob("*")
+        if f.is_file() and f.suffix.lower() in config.SUPPORTED_EXTENSIONS
     )
     indexed_sources = vs.get_indexed_sources()
-    ref_indexed = [s for s in indexed_sources if s in [f.name for f in REFERENCES_DIR.rglob("*")]]
+    ref_indexed = [s for s in indexed_sources if s in [f.name for f in config.REFERENCES_DIR.rglob("*")]]
 
     return {
-        "directory": str(REFERENCES_DIR),
+        "directory": str(config.REFERENCES_DIR),
         "total_files": total_files,
         "indexed_files": len(ref_indexed),
         "pending": total_files - len(ref_indexed),

@@ -9,7 +9,7 @@ import uuid
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 
-from app.config import UPLOADS_DIR
+import app.config as config
 from app.services.rag_pipeline import index_document
 from app.services.vector_store import get_vector_store
 from app.services.embeddings import get_embedding_service
@@ -25,9 +25,9 @@ async def upload_document(file: UploadFile = File(...)):
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
 
-    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    config.UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     unique_name = f"{uuid.uuid4().hex[:8]}_{file.filename}"
-    file_path = UPLOADS_DIR / unique_name
+    file_path = config.UPLOADS_DIR / unique_name
 
     with open(file_path, "wb") as f:
         shutil.copyfileobj(file.file, f)

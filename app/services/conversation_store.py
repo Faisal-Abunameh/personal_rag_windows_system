@@ -18,6 +18,13 @@ from app.models import (
 
 logger = logging.getLogger(__name__)
 
+async def _delete_mem0_memory(conv_id: str):
+    """Helper to delete mem0 memory for a conversation."""
+    from app.services.memory import get_memory_service
+    memory_svc = get_memory_service()
+    await memory_svc.delete_chat_memory(conv_id)
+
+
 
 async def create_conversation(title: str = "New Chat") -> str:
     """Create a new conversation and return its ID."""
@@ -91,9 +98,10 @@ async def get_conversation(conv_id: str) -> Optional[ConversationDetail]:
 
             attachments = []
             try:
-                raw_att = json.loads(mr.get("attachments") or "[]")
+                # sqlite3.Row doesn't have .get(), use indexing
+                raw_att = json.loads(mr["attachments"] if "attachments" in mr.keys() else "[]")
                 attachments = [AttachmentInfo(**a) for a in raw_att]
-            except (json.JSONDecodeError, TypeError):
+            except (json.JSONDecodeError, TypeError, IndexError):
                 pass
 
             messages.append(Message(
@@ -173,9 +181,10 @@ async def get_message(msg_id: str) -> Optional[Message]:
 
         attachments = []
         try:
-            raw_att = json.loads(row.get("attachments") or "[]")
+            # sqlite3.Row doesn't have .get(), use indexing
+            raw_att = json.loads(row["attachments"] if "attachments" in row.keys() else "[]")
             attachments = [AttachmentInfo(**a) for a in raw_att]
-        except (json.JSONDecodeError, TypeError):
+        except (json.JSONDecodeError, TypeError, IndexError):
             pass
 
         return Message(
@@ -249,5 +258,12 @@ async def delete_conversation(conv_id: str):
         await db.commit()
     finally:
         await db.close()
+    
+    # Also delete mem0 memory
+    try:
+        await _delete_mem0_memory(conv_id)
+    except Exception as e:
+        logger.error(f"Failed to delete mem0 memory for {conv_id}: {e}")
+
 
 

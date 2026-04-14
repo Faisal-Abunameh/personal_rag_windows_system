@@ -19,6 +19,13 @@ class ChatRequest(BaseModel):
     chunk_index: int = 0
 
 
+class SourceReference(BaseModel):
+    filename: str
+    chunk_text: str
+    relevance_score: float
+    chunk_index: int = 0
+
+
 class AttachmentInfo(BaseModel):
     filename: str
     file_type: Optional[str] = None

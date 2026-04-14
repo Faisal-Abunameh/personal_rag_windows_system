@@ -9,12 +9,7 @@ from typing import Optional
 import numpy as np
 import httpx
 
-from app.config import (
-    OLLAMA_BASE_URL,
-    FALLBACK_EMBEDDING_MODEL,
-    EMBEDDING_DIM,
-    DEVICE,
-)
+import app.config as config
 from app.services.cache import embedding_cache
 
 logger = logging.getLogger(__name__)
@@ -61,9 +56,9 @@ class EmbeddingService:
             # Fallback to sentence-transformers
             self._init_sentence_transformers()
             self._mode = "sentence-transformers"
-            self._model_name = FALLBACK_EMBEDDING_MODEL
+            self._model_name = config.FALLBACK_EMBEDDING_MODEL
             logger.info(
-                f"Using sentence-transformers ({FALLBACK_EMBEDDING_MODEL}), "
+                f"Using sentence-transformers ({config.FALLBACK_EMBEDDING_MODEL}), "
                 f"dim={self._dim}"
             )
 
@@ -73,7 +68,7 @@ class EmbeddingService:
         """Auto-detect an embedding model from Ollama's pulled models."""
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(f"{OLLAMA_BASE_URL}/api/tags")
+                resp = await client.get(f"{config.OLLAMA_BASE_URL}/api/tags")
                 if resp.status_code == 200:
                     models = resp.json().get("models", [])
                     for m in models:
@@ -89,7 +84,7 @@ class EmbeddingService:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.post(
-                    f"{OLLAMA_BASE_URL}/api/embed",
+                    f"{config.OLLAMA_BASE_URL}/api/embed",
                     json={"model": model_name, "input": "test"},
                 )
                 if resp.status_code == 200:
@@ -107,10 +102,10 @@ class EmbeddingService:
         from sentence_transformers import SentenceTransformer
 
         logger.info(
-            f"Loading sentence-transformers model: {FALLBACK_EMBEDDING_MODEL} "
-            f"on {DEVICE}"
+            f"Loading sentence-transformers model: {config.FALLBACK_EMBEDDING_MODEL} "
+            f"on {config.DEVICE}"
         )
-        self._model = SentenceTransformer(FALLBACK_EMBEDDING_MODEL, device=DEVICE)
+        self._model = SentenceTransformer(config.FALLBACK_EMBEDDING_MODEL, device=config.DEVICE)
         self._dim = self._model.get_sentence_embedding_dimension()
 
     async def switch_model(self, model_name: str, mode: str = "ollama") -> dict:
@@ -126,7 +121,7 @@ class EmbeddingService:
         if mode == "sentence-transformers":
             try:
                 from sentence_transformers import SentenceTransformer
-                self._model = SentenceTransformer(model_name, device=DEVICE)
+                self._model = SentenceTransformer(model_name, device=config.DEVICE)
                 self._dim = self._model.get_sentence_embedding_dimension()
                 self._mode = "sentence-transformers"
                 self._model_name = model_name
@@ -203,7 +198,7 @@ class EmbeddingService:
         for i in range(0, len(texts), batch_size):
             batch = texts[i : i + batch_size]
             resp = httpx.post(
-                f"{OLLAMA_BASE_URL}/api/embed",
+                f"{config.OLLAMA_BASE_URL}/api/embed",
                 json={"model": self._model_name, "input": batch},
                 timeout=60.0,
             )
@@ -230,8 +225,8 @@ class EmbeddingService:
 
     @property
     def dim(self) -> int:
-        if EMBEDDING_DIM > 0:
-            return EMBEDDING_DIM
+        if config.EMBEDDING_DIM > 0:
+            return config.EMBEDDING_DIM
         return self._dim
 
     @property
